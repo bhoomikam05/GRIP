@@ -1,0 +1,353 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>GRIP — Complaints Dashboard</title>
+<link href="https://fonts.googleapis.com/css2?family=Syne:wght@400;500;600;700;800&family=DM+Sans:ital,wght@0,300;0,400;0,500;1,300&display=swap" rel="stylesheet">
+<script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
+<style>
+*,*::before,*::after{box-sizing:border-box;margin:0;padding:0}
+:root{
+  --ink:#0A0A14;--paper:#F4F1EB;--accent:#E63946;--gold:#F4A261;--teal:#2A9D8F;
+  --blue:#264653;--muted:#6B6B7A;--card:#FFFDF7;--border:#DDD9D0;
+}
+body{font-family:'DM Sans',sans-serif;background:var(--paper);color:var(--ink);min-height:100vh}
+nav{position:fixed;top:0;left:0;right:0;z-index:100;background:var(--ink);padding:0 2.5rem;height:60px;display:flex;align-items:center;justify-content:space-between;border-bottom:2px solid var(--accent)}
+.nav-logo{font-family:'Syne',sans-serif;font-weight:800;font-size:1.3rem;color:#fff}
+.nav-logo span{color:var(--accent)}
+.nav-links{display:flex;gap:0.25rem}
+.nav-links a{color:#ccc;text-decoration:none;font-size:0.85rem;font-weight:500;padding:0.4rem 0.9rem;border-radius:4px;transition:all 0.2s;letter-spacing:0.03em}
+.nav-links a:hover,.nav-links a.active{background:var(--accent);color:#fff}
+
+.page-header{margin-top:60px;background:var(--ink);padding:2.5rem 2.5rem 2rem;border-bottom:1px solid #ffffff15}
+.page-header h1{font-family:'Syne',sans-serif;font-size:2rem;font-weight:800;color:#fff;letter-spacing:-0.02em}
+.page-header p{color:#888;margin-top:0.5rem;font-size:0.9rem}
+
+.main-wrap{max-width:1400px;margin:0 auto;padding:2.5rem}
+
+.kpi-row{display:grid;grid-template-columns:repeat(4,1fr);gap:1.25rem;margin-bottom:2.5rem}
+.kpi{background:var(--card);border:1px solid var(--border);border-radius:12px;padding:1.5rem;position:relative;overflow:hidden;transition:transform 0.2s}
+.kpi:hover{transform:translateY(-2px)}
+.kpi::before{content:'';position:absolute;top:0;left:0;right:0;height:3px}
+.kpi.total::before{background:var(--ink)}
+.kpi.pending::before{background:var(--gold)}
+.kpi.resolved::before{background:var(--teal)}
+.kpi.progress::before{background:#4361EE}
+.kpi-icon{font-size:1.5rem;margin-bottom:0.75rem}
+.kpi-val{font-family:'Syne',sans-serif;font-size:2.5rem;font-weight:800;line-height:1}
+.kpi-label{font-size:0.78rem;letter-spacing:0.08em;text-transform:uppercase;color:var(--muted);margin-top:0.4rem}
+.kpi-pct{font-size:0.78rem;color:var(--teal);margin-top:0.25rem}
+
+.charts-grid{display:grid;grid-template-columns:1fr 1fr;gap:1.5rem;margin-bottom:2.5rem}
+.chart-card{background:var(--card);border:1px solid var(--border);border-radius:16px;padding:1.75rem}
+.chart-title{font-family:'Syne',sans-serif;font-size:1rem;font-weight:700;margin-bottom:1.5rem;letter-spacing:-0.01em;display:flex;align-items:center;gap:0.5rem}
+.chart-title .dot{width:8px;height:8px;border-radius:50%;background:var(--accent)}
+.chart-wrap{position:relative;height:260px}
+
+.full-width{grid-column:1/-1}
+
+/* TABLE */
+.table-card{background:var(--card);border:1px solid var(--border);border-radius:16px;overflow:hidden;margin-bottom:2rem}
+.table-header{padding:1.5rem 1.75rem;display:flex;justify-content:space-between;align-items:center;border-bottom:1px solid var(--border)}
+.table-header h3{font-family:'Syne',sans-serif;font-size:1rem;font-weight:700}
+.table-filters{display:flex;gap:0.75rem;align-items:center}
+.table-filters select{padding:0.45rem 0.9rem;border:1.5px solid var(--border);border-radius:6px;font-size:0.82rem;font-family:'DM Sans',sans-serif;background:var(--paper);color:var(--ink);outline:none;cursor:pointer}
+.tbl{width:100%;border-collapse:collapse}
+.tbl th{background:var(--paper);padding:0.8rem 1.25rem;text-align:left;font-size:0.72rem;letter-spacing:0.08em;text-transform:uppercase;color:var(--muted);font-weight:600;border-bottom:1px solid var(--border)}
+.tbl td{padding:0.9rem 1.25rem;font-size:0.85rem;border-bottom:1px solid var(--border)}
+.tbl tr:last-child td{border-bottom:none}
+.tbl tr:hover td{background:#00000004}
+.tag{padding:0.25rem 0.65rem;border-radius:100px;font-size:0.7rem;font-weight:600;letter-spacing:0.05em;text-transform:uppercase;display:inline-block}
+.tag-Pending{background:#F4A26115;color:#E07020}
+.tag-Resolved{background:#2A9D8F15;color:var(--teal)}
+.tag-In\ Progress,.tag-In_Progress{background:#4361EE15;color:#4361EE}
+.tag-Rejected{background:#6B6B7A15;color:var(--muted)}
+.tag-cat{background:#E6394610;color:var(--accent)}
+.tag-area{background:#2A9D8F10;color:var(--teal)}
+
+.status-select{padding:0.3rem 0.6rem;border:1.5px solid var(--border);border-radius:6px;font-size:0.78rem;font-family:'DM Sans',sans-serif;background:var(--paper);cursor:pointer;outline:none}
+.status-select:focus{border-color:var(--accent)}
+
+.pagination{display:flex;gap:0.5rem;padding:1rem 1.75rem;border-top:1px solid var(--border);align-items:center}
+.pagination button{padding:0.45rem 0.9rem;border:1px solid var(--border);background:var(--card);border-radius:6px;font-size:0.82rem;cursor:pointer;transition:all 0.15s}
+.pagination button:hover{background:var(--accent);color:#fff;border-color:var(--accent)}
+.pagination button.active{background:var(--ink);color:#fff;border-color:var(--ink)}
+.page-info{font-size:0.82rem;color:var(--muted);margin-left:auto}
+
+@media(max-width:768px){.kpi-row{grid-template-columns:1fr 1fr}.charts-grid{grid-template-columns:1fr}.main-wrap{padding:1.5rem}nav{padding:0 1.5rem}}
+</style>
+</head>
+<body>
+
+<nav>
+  <div class="nav-logo">GR<span>IP</span></div>
+  <div class="nav-links">
+    <a href="index.html">Submit Complaint</a>
+    <span id="authLinks" style="display:none">
+      <a href="dashboard.html" class="active">Dashboard</a>
+      <a href="funds.html">Fund Transparency</a>
+    </span>
+    <a href="#" id="logoutBtn" style="display:none" onclick="logout(event)">Logout</a>
+    <a href="login.html" id="loginBtn">Login</a>
+  </div>
+</nav>
+
+<div class="page-header">
+  <div style="max-width:1400px;margin:0 auto">
+    <h1>📊 Complaints Intelligence Dashboard</h1>
+    <p>Real-time monitoring of civic complaints — category breakdown, area heatmap, and resolution trends</p>
+  </div>
+</div>
+
+<div class="main-wrap">
+  <!-- KPIs -->
+  <div class="kpi-row">
+    <div class="kpi total"><div class="kpi-icon">📋</div><div class="kpi-val" id="kTotal">—</div><div class="kpi-label">Total Complaints</div></div>
+    <div class="kpi pending"><div class="kpi-icon">⏳</div><div class="kpi-val" id="kPending" style="color:var(--gold)">—</div><div class="kpi-label">Pending</div><div class="kpi-pct" id="kPendingPct"></div></div>
+    <div class="kpi resolved"><div class="kpi-icon">✅</div><div class="kpi-val" id="kResolved" style="color:var(--teal)">—</div><div class="kpi-label">Resolved</div><div class="kpi-pct" id="kResolvedPct"></div></div>
+    <div class="kpi progress"><div class="kpi-icon">🔧</div><div class="kpi-val" id="kProgress" style="color:#4361EE">—</div><div class="kpi-label">In Progress</div></div>
+  </div>
+
+  <!-- CHARTS -->
+  <div class="charts-grid">
+    <div class="chart-card">
+      <div class="chart-title"><span class="dot"></span>Complaints by Category</div>
+      <div class="chart-wrap"><canvas id="categoryChart"></canvas></div>
+    </div>
+    <div class="chart-card">
+      <div class="chart-title"><span class="dot" style="background:var(--teal)"></span>Resolution Status</div>
+      <div class="chart-wrap"><canvas id="statusChart"></canvas></div>
+    </div>
+    <div class="chart-card">
+      <div class="chart-title"><span class="dot" style="background:var(--gold)"></span>Complaints by Area (Top 8)</div>
+      <div class="chart-wrap"><canvas id="areaChart"></canvas></div>
+    </div>
+    <div class="chart-card">
+      <div class="chart-title"><span class="dot" style="background:#4361EE"></span>Monthly Complaint Trend</div>
+      <div class="chart-wrap"><canvas id="trendChart"></canvas></div>
+    </div>
+  </div>
+
+  <!-- TABLE -->
+  <div class="table-card">
+    <div class="table-header">
+      <h3>All Complaints</h3>
+      <div class="table-filters">
+        <select id="tStatus" onchange="loadTable()"><option value="">All Status</option><option>Pending</option><option>In Progress</option><option>Resolved</option><option>Rejected</option></select>
+        <select id="tCategory" onchange="loadTable()"><option value="">All Category</option><option>Road</option><option>Garbage</option><option>Electricity</option><option>Water</option><option>Transport</option></select>
+        <select id="tArea" onchange="loadTable()"><option value="">All Areas</option><option>Whitefield</option><option>Indiranagar</option><option>Koramangala</option><option>Jayanagar</option><option>Hebbal</option><option>Electronic City</option><option>BTM Layout</option><option>Marathahalli</option></select>
+      </div>
+    </div>
+    <div style="overflow-x:auto">
+      <table class="tbl" id="complaintTable">
+        <thead><tr>
+          <th>#ID</th><th>Title</th><th>Category</th><th>Area</th><th>Citizen</th><th>Status</th><th>Submitted</th><th>Action</th>
+        </tr></thead>
+        <tbody id="tableBody"><tr><td colspan="8" style="text-align:center;padding:2rem;color:var(--muted)">Loading…</td></tr></tbody>
+      </table>
+    </div>
+    <div class="pagination" id="pagination"></div>
+  </div>
+</div>
+
+<script>
+const COLORS = ['#E63946','#F4A261','#2A9D8F','#264653','#4361EE','#7B2D8B','#F72585'];
+const CHART_OPTS = { responsive:true, maintainAspectRatio:false, plugins:{legend:{display:false}} };
+
+let allComplaints = [];
+let currentPage = 1;
+const PER_PAGE = 10;
+let charts = {};
+
+function destroyChart(id){ if(charts[id]){ charts[id].destroy(); delete charts[id]; } }
+
+async function loadStats(){
+  try{
+    const r = await fetch('/api/complaints/stats');
+    const d = await r.json();
+    const total = d.total || 0;
+    document.getElementById('kTotal').textContent = total;
+    document.getElementById('kPending').textContent = d.pending || 0;
+    document.getElementById('kResolved').textContent = d.resolved || 0;
+    document.getElementById('kProgress').textContent = d.in_progress || 0;
+    if(total){
+      document.getElementById('kPendingPct').textContent = Math.round((d.pending/total)*100)+'% of total';
+      document.getElementById('kResolvedPct').textContent = Math.round((d.resolved/total)*100)+'% resolved';
+    }
+
+    // Category Chart
+    destroyChart('cat');
+    const catCtx = document.getElementById('categoryChart').getContext('2d');
+    charts['cat'] = new Chart(catCtx, {
+      type:'bar',
+      data:{
+        labels: d.by_category.map(c=>c.category),
+        datasets:[{data: d.by_category.map(c=>c.count), backgroundColor: COLORS, borderRadius:6, borderSkipped:false}]
+      },
+      options:{...CHART_OPTS, plugins:{...CHART_OPTS.plugins, tooltip:{callbacks:{label:c=>`${c.raw} complaints`}}},
+        scales:{y:{beginAtZero:true,grid:{color:'#00000008'},ticks:{font:{size:11}}},x:{grid:{display:false},ticks:{font:{size:11}}}}}
+    });
+
+    // Status Doughnut
+    destroyChart('status');
+    const stCtx = document.getElementById('statusChart').getContext('2d');
+    const statusData = [d.pending||0, d.in_progress||0, d.resolved||0];
+    charts['status'] = new Chart(stCtx, {
+      type:'doughnut',
+      data:{
+        labels:['Pending','In Progress','Resolved'],
+        datasets:[{data:statusData, backgroundColor:['#F4A261','#4361EE','#2A9D8F'], borderWidth:0, hoverOffset:8}]
+      },
+      options:{responsive:true, maintainAspectRatio:false, cutout:'65%',
+        plugins:{legend:{display:true, position:'bottom', labels:{font:{size:12},padding:16}}}}
+    });
+
+    // Area Chart
+    destroyChart('area');
+    const arCtx = document.getElementById('areaChart').getContext('2d');
+    charts['area'] = new Chart(arCtx, {
+      type:'bar',
+      data:{
+        labels: d.by_area.map(a=>a.area),
+        datasets:[{data: d.by_area.map(a=>a.count), backgroundColor:'#F4A261', borderRadius:6, borderSkipped:false}]
+      },
+      options:{...CHART_OPTS, indexAxis:'y',
+        scales:{x:{beginAtZero:true,grid:{color:'#00000008'}},y:{grid:{display:false},ticks:{font:{size:11}}}}}
+    });
+
+    // Monthly Trend
+    destroyChart('trend');
+    const trCtx = document.getElementById('trendChart').getContext('2d');
+    const months = [...d.monthly].reverse();
+    charts['trend'] = new Chart(trCtx, {
+      type:'line',
+      data:{
+        labels: months.map(m=>m.month),
+        datasets:[{data: months.map(m=>m.count), borderColor:'#4361EE', backgroundColor:'#4361EE15',
+          tension:0.4, fill:true, pointBackgroundColor:'#4361EE', pointRadius:4, borderWidth:2.5}]
+      },
+      options:{...CHART_OPTS,
+        scales:{y:{beginAtZero:true,grid:{color:'#00000008'}},x:{grid:{display:false},ticks:{font:{size:11}}}}}
+    });
+
+  }catch(e){ console.error(e) }
+}
+// ── Auth Handling & Protection ─────────────────────────────────────────
+function checkAuth() {
+  const userJson = localStorage.getItem('grip_user');
+  if(!userJson) {
+      window.location.href = 'login.html';
+      return;
+  }
+  const user = JSON.parse(userJson);
+  if(user.role !== 'official' && user.role !== 'admin') {
+      window.location.href = 'index.html';
+      return;
+  }
+  
+  const authLinks = document.getElementById('authLinks');
+  const logoutBtn = document.getElementById('logoutBtn');
+  const loginBtn = document.getElementById('loginBtn');
+
+  if(loginBtn) loginBtn.style.display = 'none';
+  if(logoutBtn) {
+      logoutBtn.style.display = 'inline-block';
+      logoutBtn.textContent = 'Logout (' + user.username + ')';
+  }
+  if(authLinks) authLinks.style.display = 'inline-block';
+}
+
+function logout(e) {
+  if(e) e.preventDefault();
+  localStorage.removeItem('grip_user');
+  window.location.href = 'index.html';
+}
+
+checkAuth();
+
+async function loadTable(){
+  const status = document.getElementById('tStatus').value;
+  const category = document.getElementById('tCategory').value;
+  const area = document.getElementById('tArea').value;
+  let url = '/api/complaints?';
+  if(status) url += `status=${status}&`;
+  if(category) url += `category=${category}&`;
+  if(area) url += `area=${area}&`;
+  
+  try{
+    const r = await fetch(url);
+    allComplaints = await r.json();
+    currentPage = 1;
+    renderTable();
+  }catch(e){
+    document.getElementById('tableBody').innerHTML = '<tr><td colspan="8" style="text-align:center;padding:2rem;color:#E63946">Failed to load. Start Flask server.</td></tr>';
+  }
+}
+
+function renderTable(){
+  const start = (currentPage-1)*PER_PAGE;
+  const page = allComplaints.slice(start, start+PER_PAGE);
+  const tbody = document.getElementById('tableBody');
+  if(!page.length){
+    tbody.innerHTML = '<tr><td colspan="8" style="text-align:center;padding:2rem;color:var(--muted)">No complaints found.</td></tr>';
+    document.getElementById('pagination').innerHTML = '';
+    return;
+  }
+  tbody.innerHTML = page.map(c=>`
+    <tr>
+      <td><strong>#${c.id}</strong></td>
+      <td style="max-width:220px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis" title="${escHtml(c.title)}">${escHtml(c.title)}</td>
+      <td><span class="tag tag-cat">${c.category}</span></td>
+      <td><span class="tag tag-area">${c.area}</span></td>
+      <td>${escHtml(c.citizen_name||'—')}</td>
+      <td><span class="tag tag-${c.status.replace(' ','_')}">${c.status}</span></td>
+      <td>${formatDate(c.created_at)}</td>
+      <td>
+        <select class="status-select" onchange="updateStatus(${c.id}, this.value)" data-id="${c.id}">
+          <option value="Pending"${c.status==='Pending'?' selected':''}>Pending</option>
+          <option value="In Progress"${c.status==='In Progress'?' selected':''}>In Progress</option>
+          <option value="Resolved"${c.status==='Resolved'?' selected':''}>Resolved</option>
+          <option value="Rejected"${c.status==='Rejected'?' selected':''}>Rejected</option>
+        </select>
+      </td>
+    </tr>
+  `).join('');
+
+  renderPagination();
+}
+
+function renderPagination(){
+  const total = allComplaints.length;
+  const pages = Math.ceil(total/PER_PAGE);
+  const pg = document.getElementById('pagination');
+  if(pages<=1){ pg.innerHTML = `<span class="page-info">${total} complaints</span>`; return; }
+  let html = '';
+  if(currentPage>1) html += `<button onclick="goPage(${currentPage-1})">← Prev</button>`;
+  for(let i=1;i<=pages;i++){
+    if(i===currentPage) html += `<button class="active">${i}</button>`;
+    else if(i<=3||i>pages-2||Math.abs(i-currentPage)<=1) html += `<button onclick="goPage(${i})">${i}</button>`;
+    else if(i===4&&currentPage>5) html += `<span style="padding:0 4px;color:var(--muted)">…</span>`;
+  }
+  if(currentPage<pages) html += `<button onclick="goPage(${currentPage+1})">Next →</button>`;
+  html += `<span class="page-info">Page ${currentPage} of ${pages} • ${total} total</span>`;
+  pg.innerHTML = html;
+}
+
+function goPage(p){ currentPage=p; renderTable(); }
+
+async function updateStatus(id, status){
+  try{
+    const r = await fetch(`/api/complaints/${id}/status`,{method:'PUT',headers:{'Content-Type':'application/json'},body:JSON.stringify({status})});
+    const d = await r.json();
+    if(d.success){ loadStats(); }
+  }catch(e){}
+}
+
+function escHtml(s){ return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;') }
+function formatDate(d){ if(!d) return '—'; return new Date(d).toLocaleDateString('en-IN',{day:'2-digit',month:'short',year:'numeric'}) }
+
+loadStats(); loadTable();
+</script>
+</body>
+</html>
