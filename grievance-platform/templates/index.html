@@ -108,6 +108,9 @@ textarea{resize:vertical;min-height:100px}
 .tag-status-Resolved{background:#2A9D8F15;color:var(--teal)}
 .tag-status-In-Progress{background:#4361EE15;color:#4361EE}
 .tag-status-Rejected{background:#6B6B7A15;color:var(--muted)}
+.tag-pri-High{background:#E6394615;color:var(--accent)}
+.tag-pri-Medium{background:#F4A26115;color:#E07020}
+.tag-pri-Low{background:#2A9D8F15;color:var(--teal)}
 .card-footer{font-size:0.75rem;color:var(--muted);display:flex;justify-content:space-between;align-items:center}
 .card-citizen{font-weight:500;color:var(--ink)}
 
@@ -142,8 +145,9 @@ textarea{resize:vertical;min-height:100px}
   <div class="nav-links">
     <a href="index.html" class="active">Submit Complaint</a>
     <span id="authLinks" style="display:none">
-      <a href="dashboard.html">Dashboard</a>
-      <a href="funds.html">Fund Transparency</a>
+      <a href="dashboard.html" id="navDashboard" style="display:none">Dashboard</a>
+      <a href="citizen_dashboard.html" id="navCitizen" style="display:none">My Complaints</a>
+      <a href="funds.html" id="navFunds" style="display:none">Fund Transparency</a>
     </span>
     <a href="#" id="logoutBtn" style="display:none" onclick="logout(event)">Logout</a>
     <a href="login.html" id="loginBtn">Login</a>
@@ -199,7 +203,7 @@ textarea{resize:vertical;min-height:100px}
             <div class="form-group full">
               <label>Description *</label>
               <textarea name="description" id="descInput" placeholder="Describe the issue in detail — location, duration, severity..." required></textarea>
-              <div class="ai-hint" id="aiHint"><span class="ai-dot"></span> AI detected category: <strong id="aiCategory">—</strong></div>
+              <div class="ai-hint" id="aiHint"><span class="ai-dot"></span> AI detected: <strong id="aiCategory">—</strong> | Priority: <strong id="aiPriority">—</strong></div>
             </div>
             <div class="form-group">
               <label>Category</label>
@@ -263,6 +267,14 @@ textarea{resize:vertical;min-height:100px}
             <div class="qlc-arrow">→</div>
           </a>
         </div>
+        <div id="citQL" style="display:none;flex-direction:column;gap:1rem">
+          <a href="citizen_dashboard.html" class="quick-link-card">
+            <div class="qlc-icon">📋</div>
+            <div class="qlc-title">My Complaints</div>
+            <div class="qlc-sub">View and track the status of all grievances you have submitted.</div>
+            <div class="qlc-arrow">→</div>
+          </a>
+        </div>
         <a href="login.html" class="quick-link-card" id="loginQuickLink">
           <div class="qlc-icon">🔒</div>
           <div class="qlc-title">Official Login</div>
@@ -287,6 +299,7 @@ textarea{resize:vertical;min-height:100px}
     </div>
     <div class="filter-bar">
       <select id="filterStatus" onchange="loadComplaints()"><option value="">All Statuses</option><option>Pending</option><option>In Progress</option><option>Resolved</option><option>Rejected</option></select>
+      <select id="filterPriority" onchange="loadComplaints()"><option value="">All Priorities</option><option>High</option><option>Medium</option><option>Low</option></select>
       <select id="filterCategory" onchange="loadComplaints()"><option value="">All Categories</option><option>Road</option><option>Garbage</option><option>Electricity</option><option>Water</option><option>Transport</option></select>
       <select id="filterArea" onchange="loadComplaints()"><option value="">All Areas</option><option>Whitefield</option><option>Indiranagar</option><option>Koramangala</option><option>Jayanagar</option><option>Hebbal</option><option>Electronic City</option><option>BTM Layout</option><option>Marathahalli</option></select>
       <button class="refresh-btn" onclick="loadComplaints()">↻ Refresh</button>
@@ -310,6 +323,7 @@ function checkAuth() {
   const logoutBtn = document.getElementById('logoutBtn');
   const loginBtn = document.getElementById('loginBtn');
   const offQL = document.getElementById('officialQuickLinks');
+  const citQL = document.getElementById('citQL');
   const logQL = document.getElementById('loginQuickLink');
 
   if(userJson) {
@@ -321,7 +335,13 @@ function checkAuth() {
     
     if(user.role === 'official' || user.role === 'admin') {
       if(authLinks) authLinks.style.display = 'inline-block';
+      document.getElementById('navDashboard').style.display = 'inline-block';
+      document.getElementById('navFunds').style.display = 'inline-block';
       if(offQL) offQL.style.display = 'flex';
+    } else if(user.role === 'citizen') {
+      if(authLinks) authLinks.style.display = 'inline-block';
+      document.getElementById('navCitizen').style.display = 'inline-block';
+      if(citQL) citQL.style.display = 'flex';
     }
   }
 }
@@ -332,6 +352,20 @@ function logout(e) {
 }
 
 checkAuth();
+
+// ── Auto-fill citizen info from login ───────────────────────────
+(function autoFillCitizen(){
+  const uJson = localStorage.getItem('grip_user');
+  if(uJson){
+    const user = JSON.parse(uJson);
+    if(user.role === 'citizen'){
+      const nameField = document.querySelector('input[name="citizen_name"]');
+      const contactField = document.querySelector('input[name="citizen_contact"]');
+      if(contactField) { contactField.value = user.username; contactField.readOnly = true; }
+      if(nameField && user.display_name) { nameField.value = user.display_name; }
+    }
+  }
+})();
 
 // ── AI Auto-categorize ──────────────────────────────────────────
 let aiTimer;
@@ -351,6 +385,7 @@ function triggerAI(){
       const r = await fetch('/api/categorize',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({title,description:desc})});
       const d = await r.json();
       aiCategory.textContent = d.category;
+      document.getElementById('aiPriority').textContent = d.priority || 'Medium';
       aiHint.classList.add('show');
       if(!catSelect.value) catSelect.value = d.category;
     }catch(e){}
@@ -428,9 +463,12 @@ async function loadComplaints(){
   const status = document.getElementById('filterStatus').value;
   const category = document.getElementById('filterCategory').value;
   const area = document.getElementById('filterArea').value;
+  const priority = document.getElementById('filterPriority').value;
+  
   let url = '/api/complaints?';
   if(status) url += `status=${status}&`;
   if(category) url += `category=${category}&`;
+  if(priority) url += `priority=${priority}&`;
   if(area) url += `area=${area}&`;
   
   const grid = document.getElementById('complaintsGrid');
@@ -452,6 +490,7 @@ async function loadComplaints(){
         <div class="card-desc">${escHtml(c.description||'')}</div>
         <div class="card-meta">
           <span class="tag tag-cat">${c.category}</span>
+          <span class="tag tag-pri-${c.priority || 'Medium'}">${c.priority || 'Medium'}</span>
           <span class="tag tag-area">📍 ${c.area}</span>
           <span class="tag tag-status-${c.status.replace(' ', '-')}">${c.status}</span>
         </div>

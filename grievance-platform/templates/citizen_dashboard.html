@@ -146,9 +146,9 @@ nav{position:fixed;top:0;left:0;right:0;z-index:100;background:var(--ink);paddin
     <div style="overflow-x:auto">
       <table class="tbl">
         <thead><tr>
-          <th>#ID</th><th>Title</th><th>Category</th><th>Priority</th><th>Area</th><th>Citizen</th><th>Status</th><th>Updated By</th><th>Submitted</th><th>Action</th>
+          <th>#ID</th><th>Title</th><th>Category</th><th>Priority</th><th>Area</th><th>Status</th><th>Submitted</th>
         </tr></thead>
-        <tbody id="activeBody"><tr><td colspan="10" style="text-align:center;padding:2rem;color:var(--muted)">Loading…</td></tr></tbody>
+        <tbody id="activeBody"><tr><td colspan="7" style="text-align:center;padding:2rem;color:var(--muted)">Loading…</td></tr></tbody>
       </table>
     </div>
     <div class="pagination" id="activePagination"></div>
@@ -162,9 +162,9 @@ nav{position:fixed;top:0;left:0;right:0;z-index:100;background:var(--ink);paddin
     <div style="overflow-x:auto">
       <table class="tbl">
         <thead><tr>
-          <th>#ID</th><th>Title</th><th>Category</th><th>Priority</th><th>Area</th><th>Citizen</th><th>Updated By</th><th>Submitted</th><th>Resolved On</th>
+          <th>#ID</th><th>Title</th><th>Category</th><th>Priority</th><th>Area</th><th>Status</th><th>Submitted</th><th>Resolved On</th>
         </tr></thead>
-        <tbody id="resolvedBody"><tr><td colspan="9" style="text-align:center;padding:2rem;color:var(--muted)">Loading…</td></tr></tbody>
+        <tbody id="resolvedBody"><tr><td colspan="8" style="text-align:center;padding:2rem;color:var(--muted)">Loading…</td></tr></tbody>
       </table>
     </div>
     <div class="pagination" id="resolvedPagination"></div>
@@ -199,113 +199,147 @@ async function loadStats(){
       document.getElementById('kResolvedPct').textContent = Math.round((d.resolved/total)*100)+'% resolved';
     }
 
+    // Category Chart
     destroyChart('cat');
     const catCtx = document.getElementById('categoryChart').getContext('2d');
     charts['cat'] = new Chart(catCtx, {
       type:'bar',
-      data:{ labels: d.by_category.map(c=>c.category), datasets:[{data: d.by_category.map(c=>c.count), backgroundColor: COLORS, borderRadius:6, borderSkipped:false}] },
+      data:{
+        labels: d.by_category.map(c=>c.category),
+        datasets:[{data: d.by_category.map(c=>c.count), backgroundColor: COLORS, borderRadius:6, borderSkipped:false}]
+      },
       options:{...CHART_OPTS, plugins:{...CHART_OPTS.plugins, tooltip:{callbacks:{label:c=>`${c.raw} complaints`}}},
         scales:{y:{beginAtZero:true,grid:{color:'#00000008'},ticks:{font:{size:11}}},x:{grid:{display:false},ticks:{font:{size:11}}}}}
     });
 
+    // Status Doughnut
     destroyChart('status');
     const stCtx = document.getElementById('statusChart').getContext('2d');
+    const statusData = [d.pending||0, d.in_progress||0, d.resolved||0];
     charts['status'] = new Chart(stCtx, {
       type:'doughnut',
-      data:{ labels:['Pending','In Progress','Resolved'], datasets:[{data:[d.pending||0, d.in_progress||0, d.resolved||0], backgroundColor:['#F4A261','#4361EE','#2A9D8F'], borderWidth:0, hoverOffset:8}] },
-      options:{responsive:true, maintainAspectRatio:false, cutout:'65%', plugins:{legend:{display:true, position:'bottom', labels:{font:{size:12},padding:16}}}}
+      data:{
+        labels:['Pending','In Progress','Resolved'],
+        datasets:[{data:statusData, backgroundColor:['#F4A261','#4361EE','#2A9D8F'], borderWidth:0, hoverOffset:8}]
+      },
+      options:{responsive:true, maintainAspectRatio:false, cutout:'65%',
+        plugins:{legend:{display:true, position:'bottom', labels:{font:{size:12},padding:16}}}}
     });
 
+    // Area Chart
     destroyChart('area');
     const arCtx = document.getElementById('areaChart').getContext('2d');
     charts['area'] = new Chart(arCtx, {
       type:'bar',
-      data:{ labels: d.by_area.map(a=>a.area), datasets:[{data: d.by_area.map(a=>a.count), backgroundColor:'#F4A261', borderRadius:6, borderSkipped:false}] },
-      options:{...CHART_OPTS, indexAxis:'y', scales:{x:{beginAtZero:true,grid:{color:'#00000008'}},y:{grid:{display:false},ticks:{font:{size:11}}}}}
+      data:{
+        labels: d.by_area.map(a=>a.area),
+        datasets:[{data: d.by_area.map(a=>a.count), backgroundColor:'#F4A261', borderRadius:6, borderSkipped:false}]
+      },
+      options:{...CHART_OPTS, indexAxis:'y',
+        scales:{x:{beginAtZero:true,grid:{color:'#00000008'}},y:{grid:{display:false},ticks:{font:{size:11}}}}}
     });
 
+    // Monthly Trend
     destroyChart('trend');
     const trCtx = document.getElementById('trendChart').getContext('2d');
     const months = [...d.monthly].reverse();
     charts['trend'] = new Chart(trCtx, {
       type:'line',
-      data:{ labels: months.map(m=>m.month), datasets:[{data: months.map(m=>m.count), borderColor:'#4361EE', backgroundColor:'#4361EE15', tension:0.4, fill:true, pointBackgroundColor:'#4361EE', pointRadius:4, borderWidth:2.5}] },
-      options:{...CHART_OPTS, scales:{y:{beginAtZero:true,grid:{color:'#00000008'}},x:{grid:{display:false},ticks:{font:{size:11}}}}}
+      data:{
+        labels: months.map(m=>m.month),
+        datasets:[{data: months.map(m=>m.count), borderColor:'#4361EE', backgroundColor:'#4361EE15',
+          tension:0.4, fill:true, pointBackgroundColor:'#4361EE', pointRadius:4, borderWidth:2.5}]
+      },
+      options:{...CHART_OPTS,
+        scales:{y:{beginAtZero:true,grid:{color:'#00000008'}},x:{grid:{display:false},ticks:{font:{size:11}}}}}
     });
+
   }catch(e){ console.error(e) }
 }
-
-// ── Auth ─────────────────────────────────────────────────────────────
+// ── Auth Handling & Protection ─────────────────────────────────────────
 function checkAuth() {
   const userJson = localStorage.getItem('grip_user');
-  if(!userJson) { window.location.href = 'login.html'; return; }
+  if(!userJson) {
+      window.location.href = 'login.html';
+      return;
+  }
   const user = JSON.parse(userJson);
-  if(user.role !== 'official' && user.role !== 'admin') { window.location.href = 'index.html'; return; }
+  if(user.role !== 'citizen') {
+      window.location.href = 'index.html';
+      return;
+  }
+  
   const authLinks = document.getElementById('authLinks');
   const logoutBtn = document.getElementById('logoutBtn');
   const loginBtn = document.getElementById('loginBtn');
+
   if(loginBtn) loginBtn.style.display = 'none';
-  if(logoutBtn) { logoutBtn.style.display = 'inline-block'; logoutBtn.textContent = 'Logout (' + user.username + ')'; }
+  if(logoutBtn) {
+      logoutBtn.style.display = 'inline-block';
+      logoutBtn.textContent = 'Logout (' + user.username + ')';
+  }
   if(authLinks) authLinks.style.display = 'inline-block';
 }
-function logout(e) { if(e) e.preventDefault(); localStorage.removeItem('grip_user'); window.location.href = 'index.html'; }
+
+function logout(e) {
+  if(e) e.preventDefault();
+  localStorage.removeItem('grip_user');
+  window.location.href = 'index.html';
+}
+
 checkAuth();
 
-// ── Load & Render ────────────────────────────────────────────────────
 async function loadTable(){
   const category = document.getElementById('tCategory').value;
   const area = document.getElementById('tArea').value;
   const priority = document.getElementById('tPriority').value;
+  
   let url = '/api/complaints?';
+  const uJson = localStorage.getItem('grip_user');
+  if(uJson){
+    const user = JSON.parse(uJson);
+    url += `contact=${user.username}&`;
+  }
   if(category) url += `category=${category}&`;
   if(priority) url += `priority=${priority}&`;
   if(area) url += `area=${area}&`;
+  
   try{
     const r = await fetch(url);
     allComplaints = await r.json();
     activeComplaints = allComplaints.filter(c => c.status !== 'Resolved');
     resolvedComplaints = allComplaints.filter(c => c.status === 'Resolved');
-    activePage = 1; resolvedPage = 1;
+    activePage = 1;
+    resolvedPage = 1;
     renderActiveTable();
     renderResolvedTable();
   }catch(e){
-    document.getElementById('activeBody').innerHTML = '<tr><td colspan="10" style="text-align:center;padding:2rem;color:#E63946">Failed to load.</td></tr>';
+    document.getElementById('activeBody').innerHTML = '<tr><td colspan="7" style="text-align:center;padding:2rem;color:#E63946">Failed to load. Start Flask server.</td></tr>';
   }
 }
 
-function renderActiveRow(c){
+function renderRow(c){
   return `<tr>
     <td><strong>#${c.id}</strong></td>
-    <td style="max-width:200px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis" title="${escHtml(c.title)}">${escHtml(c.title)}</td>
+    <td style="max-width:220px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis" title="${escHtml(c.title)}">${escHtml(c.title)}</td>
     <td><span class="tag tag-cat">${c.category}</span></td>
-    <td><span class="tag tag-pri-${c.priority||'Medium'}">${c.priority||'Medium'}</span></td>
+    <td><span class="tag tag-pri-${c.priority || 'Medium'}">${c.priority || 'Medium'}</span></td>
     <td><span class="tag tag-area">${c.area}</span></td>
-    <td>${escHtml(c.citizen_name||'—')}</td>
     <td><span class="tag tag-${c.status.replace(' ','_')}">${c.status}</span></td>
-    <td style="font-size:0.82rem;color:var(--muted)">${c.updated_by ? escHtml(c.updated_by) : '—'}</td>
-    <td style="font-size:0.85rem">${formatDate(c.created_at)}</td>
-    <td>
-      <select class="status-select" onchange="updateStatus(${c.id}, this.value)">
-        <option value="Pending"${c.status==='Pending'?' selected':''}>Pending</option>
-        <option value="In Progress"${c.status==='In Progress'?' selected':''}>In Progress</option>
-        <option value="Resolved"${c.status==='Resolved'?' selected':''}>Resolved</option>
-        <option value="Rejected"${c.status==='Rejected'?' selected':''}>Rejected</option>
-      </select>
-    </td>
+    <td>${formatDate(c.created_at)}</td>
   </tr>`;
 }
 
 function renderResolvedRow(c){
   return `<tr>
     <td><strong>#${c.id}</strong></td>
-    <td style="max-width:200px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis" title="${escHtml(c.title)}">${escHtml(c.title)}</td>
+    <td style="max-width:220px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis" title="${escHtml(c.title)}">${escHtml(c.title)}</td>
     <td><span class="tag tag-cat">${c.category}</span></td>
-    <td><span class="tag tag-pri-${c.priority||'Medium'}">${c.priority||'Medium'}</span></td>
+    <td><span class="tag tag-pri-${c.priority || 'Medium'}">${c.priority || 'Medium'}</span></td>
     <td><span class="tag tag-area">${c.area}</span></td>
-    <td>${escHtml(c.citizen_name||'—')}</td>
-    <td style="font-size:0.82rem;color:var(--muted)">${c.updated_by ? escHtml(c.updated_by) : '—'}</td>
-    <td style="font-size:0.85rem">${formatDate(c.created_at)}</td>
-    <td style="font-size:0.85rem;color:var(--teal)">${formatDate(c.resolved_at)}</td>
+    <td><span class="tag tag-Resolved">Resolved</span></td>
+    <td>${formatDate(c.created_at)}</td>
+    <td>${formatDate(c.resolved_at)}</td>
   </tr>`;
 }
 
@@ -313,18 +347,26 @@ function renderActiveTable(){
   const start = (activePage-1)*PER_PAGE;
   const page = activeComplaints.slice(start, start+PER_PAGE);
   const tbody = document.getElementById('activeBody');
-  if(!page.length){ tbody.innerHTML = '<tr><td colspan="10" style="text-align:center;padding:2rem;color:var(--muted)">No active complaints.</td></tr>'; document.getElementById('activePagination').innerHTML=''; return; }
-  tbody.innerHTML = page.map(renderActiveRow).join('');
-  renderPaginationFor('activePagination', activeComplaints.length, activePage, p=>{ activePage=p; renderActiveTable(); });
+  if(!page.length){
+    tbody.innerHTML = '<tr><td colspan="7" style="text-align:center;padding:2rem;color:var(--muted)">No active complaints 🎉</td></tr>';
+    document.getElementById('activePagination').innerHTML = '';
+    return;
+  }
+  tbody.innerHTML = page.map(renderRow).join('');
+  renderPaginationFor('activePagination', activeComplaints.length, activePage, p => { activePage=p; renderActiveTable(); });
 }
 
 function renderResolvedTable(){
   const start = (resolvedPage-1)*PER_PAGE;
   const page = resolvedComplaints.slice(start, start+PER_PAGE);
   const tbody = document.getElementById('resolvedBody');
-  if(!page.length){ tbody.innerHTML = '<tr><td colspan="9" style="text-align:center;padding:2rem;color:var(--muted)">No resolved complaints yet.</td></tr>'; document.getElementById('resolvedPagination').innerHTML=''; return; }
+  if(!page.length){
+    tbody.innerHTML = '<tr><td colspan="8" style="text-align:center;padding:2rem;color:var(--muted)">No resolved complaints yet.</td></tr>';
+    document.getElementById('resolvedPagination').innerHTML = '';
+    return;
+  }
   tbody.innerHTML = page.map(renderResolvedRow).join('');
-  renderPaginationFor('resolvedPagination', resolvedComplaints.length, resolvedPage, p=>{ resolvedPage=p; renderResolvedTable(); });
+  renderPaginationFor('resolvedPagination', resolvedComplaints.length, resolvedPage, p => { resolvedPage=p; renderResolvedTable(); });
 }
 
 function renderPaginationFor(elId, total, currentPg, goFn){
@@ -332,7 +374,7 @@ function renderPaginationFor(elId, total, currentPg, goFn){
   const pg = document.getElementById(elId);
   if(pages<=1){ pg.innerHTML = `<span class="page-info">${total} complaints</span>`; return; }
   let html = '';
-  if(currentPg>1) html += `<button>← Prev</button>`;
+  if(currentPg>1) html += `<button onclick="arguments[0]&&arguments[0].stopPropagation()">← Prev</button>`;
   for(let i=1;i<=pages;i++){
     if(i===currentPg) html += `<button class="active">${i}</button>`;
     else if(i<=3||i>pages-2||Math.abs(i-currentPg)<=1) html += `<button>${i}</button>`;
@@ -341,22 +383,21 @@ function renderPaginationFor(elId, total, currentPg, goFn){
   if(currentPg<pages) html += `<button>Next →</button>`;
   html += `<span class="page-info">Page ${currentPg} of ${pages} • ${total} total</span>`;
   pg.innerHTML = html;
-  pg.querySelectorAll('button').forEach(btn => {
+  // attach click handlers
+  const btns = pg.querySelectorAll('button');
+  btns.forEach(btn => {
     const txt = btn.textContent;
-    if(txt==='← Prev') btn.onclick=()=>goFn(currentPg-1);
-    else if(txt==='Next →') btn.onclick=()=>goFn(currentPg+1);
-    else if(!btn.classList.contains('active')) btn.onclick=()=>goFn(parseInt(txt));
+    if(txt === '← Prev') btn.onclick = () => goFn(currentPg-1);
+    else if(txt === 'Next →') btn.onclick = () => goFn(currentPg+1);
+    else if(!btn.classList.contains('active')) btn.onclick = () => goFn(parseInt(txt));
   });
 }
 
 async function updateStatus(id, status){
   try{
-    const userJson = localStorage.getItem('grip_user');
-    let updated_by = 'Unknown';
-    if(userJson) { const user = JSON.parse(userJson); updated_by = user.username; }
-    const r = await fetch(`/api/complaints/${id}/status`,{method:'PUT',headers:{'Content-Type':'application/json'},body:JSON.stringify({status, updated_by})});
+    const r = await fetch(`/api/complaints/${id}/status`,{method:'PUT',headers:{'Content-Type':'application/json'},body:JSON.stringify({status})});
     const d = await r.json();
-    if(d.success){ loadStats(); loadTable(); }
+    if(d.success){ loadStats(); }
   }catch(e){}
 }
 

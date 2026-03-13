@@ -54,15 +54,34 @@ CATEGORY_KEYWORDS = {
     'Transport': ['bus', 'transport', 'auto', 'metro', 'train', 'route', 'stop', 'shelter', 'timetable', 'schedule', 'vehicle', 'commute']
 }
 
-def nlp_categorize(title, description):
+def nlp_categorize_and_prioritize(title, description):
     text = (title + ' ' + description).lower()
+    
+    # Priority check
+    high_pri = ['urgent', 'emergency', 'danger', 'accident', 'critical', 'fatal', 'severe', 'immediate']
+    low_pri = ['suggestion', 'feature', 'minor', 'cosmetic', 'request', 'feedback', 'inquiry']
+    
+    priority = 'Medium'
+    for kw in high_pri:
+        if kw in text:
+            priority = 'High'
+            break
+    if priority == 'Medium':
+        for kw in low_pri:
+            if kw in text:
+                priority = 'Low'
+                break
+
+    # Category check
     scores = {cat: 0 for cat in CATEGORY_KEYWORDS}
     for cat, keywords in CATEGORY_KEYWORDS.items():
         for kw in keywords:
             if kw in text:
                 scores[cat] += 1
-    best = max(scores, key=scores.get)
-    return best if scores[best] > 0 else 'Other'
+    best_cat = max(scores, key=scores.get)
+    category = best_cat if scores[best_cat] > 0 else 'Other'
+    
+    return category, priority
 
 @app.route('/api/login', methods=['POST'])
 def api_login():
@@ -82,6 +101,36 @@ def api_login():
             return jsonify({'success': True, 'user': {'username': user['username'], 'role': user['role']}})
         
         return jsonify({'error': 'Invalid username or password'}), 401
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
+
+@app.route('/api/register', methods=['POST'])
+def api_register():
+    try:
+        data = request.json
+        username = data.get('username', '').strip()
+        password = data.get('password', '')
+        
+        if not username or not password:
+            return jsonify({'error': 'Phone number and password are required'}), 400
+            
+        conn = get_db()
+        cursor = conn.cursor()
+        
+        # Check if user already exists
+        cursor.execute('SELECT id FROM users WHERE username=?', (username,))
+        if cursor.fetchone():
+            conn.close()
+            return jsonify({'error': 'Phone number already registered'}), 409
+            
+        password_hash = generate_password_hash(password)
+        cursor.execute("INSERT INTO users (username, password_hash, role) VALUES (?,?,?)", (username, password_hash, 'citizen'))
+        user_id = cursor.lastrowid
+        conn.commit()
+        conn.close()
+        
+        session['user'] = {'id': user_id, 'username': username, 'role': 'citizen'}
+        return jsonify({'success': True, 'user': {'username': username, 'role': 'citizen'}})
     except Exception as e:
         return jsonify({'error': str(e)}), 500
 
@@ -107,6 +156,10 @@ def index():
 def dashboard():
     return render_template('dashboard.html', user=session.get('user'))
 
+@app.route('/citizen_dashboard.html')
+def citizen_dashboard():
+    return render_template('citizen_dashboard.html', user=session.get('user'))
+
 @app.route('/funds')
 @app.route('/funds.html')
 @login_required
@@ -119,7 +172,11 @@ def submit_complaint():
         data = request.form
         title = data.get('title', '')
         description = data.get('description', '')
-        category = data.get('category', '') or nlp_categorize(title, description)
+        
+        auto_cat, auto_pri = nlp_categorize_and_prioritize(title, description)
+        category = data.get('category', '') or auto_cat
+        priority = auto_pri
+
         area = data.get('area', '')
         citizen_name = data.get('citizen_name', 'Anonymous')
         citizen_contact = data.get('citizen_contact', '')
@@ -133,19 +190,26 @@ def submit_complaint():
                 os.makedirs(app.config['UPLOAD_FOLDER'], exist_ok=True)
                 file.save(os.path.join(app.config['UPLOAD_FOLDER'], filename))
                 image_path = filename
-        print(f"Submitting complaint: {title}, {category}, {area}")
+        print(f"Submitting complaint: {title}, {category}, {priority}, {area}")
         conn = get_db()
         if not conn:
             return jsonify({'error': 'DB connection failed'}), 500
         cursor = conn.cursor()
-        cursor.execute("""INSERT INTO complaints (title, description, category, area, citizen_name, citizen_contact, image_path, status, created_at)
-            VALUES (?, ?, ?, ?, ?, ?, ?, 'Pending', datetime('now'))""",
-            (title, description, category, area, citizen_name, citizen_contact, image_path))
+        
+        # Check if priority column exists, if not, add it (for backward compatibility on first run)
+        try:
+            cursor.execute("SELECT priority FROM complaints LIMIT 1")
+        except:
+            cursor.execute("ALTER TABLE complaints ADD COLUMN priority TEXT DEFAULT 'Medium'")
+
+        cursor.execute("""INSERT INTO complaints (title, description, category, priority, area, citizen_name, citizen_contact, image_path, status, created_at)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'Pending', datetime('now'))""",
+            (title, description, category, priority, area, citizen_name, citizen_contact, image_path))
         complaint_id = cursor.lastrowid
         conn.commit()
         conn.close()
         print(f"Complaint submitted with ID: {complaint_id}")
-        return jsonify({'success': True, 'complaint_id': complaint_id, 'category': category, 'message': f'Complaint #{complaint_id} submitted successfully!'})
+        return jsonify({'success': True, 'complaint_id': complaint_id, 'category': category, 'priority': priority, 'message': f'Complaint #{complaint_id} submitted successfully!'})
     except Exception as e:
         print(f"Error submitting complaint: {e}")
         return jsonify({'error': str(e)}), 500
@@ -160,14 +224,22 @@ def get_complaints():
         status_filter = request.args.get('status', '')
         category_filter = request.args.get('category', '')
         area_filter = request.args.get('area', '')
+        priority_filter = request.args.get('priority', '')
+        contact_filter = request.args.get('contact', '')
+        
         query = "SELECT * FROM complaints WHERE 1=1"
         params = []
         if status_filter:
             query += " AND status=?"; params.append(status_filter)
         if category_filter:
             query += " AND category=?"; params.append(category_filter)
+        if priority_filter:
+            query += " AND priority=?"; params.append(priority_filter)
         if area_filter:
             query += " AND area=?"; params.append(area_filter)
+        if contact_filter:
+            query += " AND citizen_contact=?"; params.append(contact_filter)
+            
         query += " ORDER BY created_at DESC"
         cursor.execute(query, params)
         complaints = [dict(c) for c in cursor.fetchall()]
@@ -186,12 +258,14 @@ def update_status(complaint_id):
     try:
         data = request.json
         new_status = data.get('status')
+        updated_by = data.get('updated_by', 'Unknown')
         conn = get_db()
         cursor = conn.cursor()
         if new_status == 'Resolved':
-            cursor.execute("UPDATE complaints SET status=?, resolved_at=datetime('now') WHERE id=?", (new_status, complaint_id))
+            cursor.execute("UPDATE complaints SET status=?, updated_by=?, resolved_at=datetime('now') WHERE id=?", (new_status, updated_by, complaint_id))
         else:
-            cursor.execute("UPDATE complaints SET status=? WHERE id=?", (new_status, complaint_id))
+            cursor.execute("UPDATE complaints SET status=?, updated_by=? WHERE id=?", (new_status, updated_by, complaint_id))
+        conn.commit()
         conn.close()
         return jsonify({'success': True})
     except Exception as e:
@@ -226,8 +300,8 @@ def complaint_stats():
 @app.route('/api/categorize', methods=['POST'])
 def categorize():
     data = request.json
-    category = nlp_categorize(data.get('title',''), data.get('description',''))
-    return jsonify({'category': category})
+    category, priority = nlp_categorize_and_prioritize(data.get('title',''), data.get('description',''))
+    return jsonify({'category': category, 'priority': priority})
 
 @app.route('/api/funds/summary', methods=['GET'])
 def fund_summary():
@@ -317,9 +391,15 @@ def setup_database():
         cursor = conn.cursor()
         cursor.execute("""CREATE TABLE IF NOT EXISTS complaints (
             id INTEGER PRIMARY KEY AUTOINCREMENT, title TEXT NOT NULL, description TEXT,
-            category TEXT, area TEXT, citizen_name TEXT, citizen_contact TEXT,
-            image_path TEXT, status TEXT DEFAULT 'Pending',
+            category TEXT, priority TEXT DEFAULT 'Medium', area TEXT, citizen_name TEXT, citizen_contact TEXT,
+            image_path TEXT, status TEXT DEFAULT 'Pending', updated_by TEXT DEFAULT '',
             created_at TEXT, resolved_at TEXT)""")
+        
+        # Backward compatibility for existing tables
+        try: cursor.execute("ALTER TABLE complaints ADD COLUMN priority TEXT DEFAULT 'Medium'")
+        except: pass
+        try: cursor.execute("ALTER TABLE complaints ADD COLUMN updated_by TEXT DEFAULT ''")
+        except: pass
         cursor.execute("""CREATE TABLE IF NOT EXISTS users (
             id INTEGER PRIMARY KEY AUTOINCREMENT, username TEXT UNIQUE NOT NULL, password_hash TEXT NOT NULL, role TEXT DEFAULT 'admin')""")
         cursor.execute("""CREATE TABLE IF NOT EXISTS vendors (
@@ -362,27 +442,27 @@ def setup_database():
         cursor.execute("SELECT COUNT(*) FROM complaints")
         if cursor.fetchone()[0] == 0:
             samples = [
-                ('Deep pothole on main road','Large pothole causing accidents near bus stand','Road','Whitefield','Ramesh Kumar','9801234567','Pending'),
-                ('Garbage not collected for 3 days','Waste piling up near apartment complex','Garbage','Indiranagar','Priya Sharma','9812345678','Resolved'),
-                ('Street light broken since a week','Dark road causing safety issues at night','Electricity','Koramangala','Arun Nair','9823456789','In Progress'),
-                ('Water supply disrupted','No water supply for past 2 days in the locality','Water','Jayanagar','Sunita Reddy','9834567890','Pending'),
-                ('Bus route changed without notice','Bus 310C no longer stops at our stop','Transport','Hebbal','Mohan Das','9845678901','Pending'),
-                ('Road flooded after rain','Drainage blocked causing waterlogging on main road','Water','BTM Layout','Kavya B','9856789012','Resolved'),
-                ('Open manhole on footpath','Dangerous open manhole not repaired for 2 weeks','Road','Marathahalli','Vijay Singh','9867890123','In Progress'),
-                ('Transformers making noise','Loud humming from transformer safety risk','Electricity','Electronic City','Neha Kapoor','9878901234','Pending'),
-                ('Filthy public park','Public park bins overflowing unhygienic condition','Garbage','Whitefield','Santosh G','9889012345','Resolved'),
-                ('Water pipe leaking','Underground pipe burst causing water wastage','Water','Indiranagar','Ritu Mehta','9890123456','Pending'),
-                ('Damaged road divider','Road divider broken causing traffic snarls','Road','Koramangala','Arjun P','9901234567','In Progress'),
-                ('No street lights in colony','Entire colony in darkness after 9PM','Electricity','Hebbal','Deepa M','9912345678','Resolved'),
+                ('Deep pothole on main road','Large pothole causing accidents near bus stand','Road','High','Whitefield','Ramesh Kumar','9801234567','Pending'),
+                ('Garbage not collected for 3 days','Waste piling up near apartment complex','Garbage','Medium','Indiranagar','Priya Sharma','9812345678','Resolved'),
+                ('Street light broken since a week','Dark road causing safety issues at night','Electricity','Medium','Koramangala','Arun Nair','9823456789','In Progress'),
+                ('Water supply disrupted','No water supply for past 2 days in the locality','Water','High','Jayanagar','Sunita Reddy','9834567890','Pending'),
+                ('Bus route changed without notice','Bus 310C no longer stops at our stop','Transport','Low','Hebbal','Mohan Das','9845678901','Pending'),
+                ('Road flooded after rain','Drainage blocked causing waterlogging on main road','Water','Medium','BTM Layout','Kavya B','9856789012','Resolved'),
+                ('Open manhole on footpath','Dangerous open manhole not repaired for 2 weeks','Road','High','Marathahalli','Vijay Singh','9867890123','In Progress'),
+                ('Transformers making noise','Loud humming from transformer safety risk','Electricity','Medium','Electronic City','Neha Kapoor','9878901234','Pending'),
+                ('Filthy public park','Public park bins overflowing unhygienic condition','Garbage','Low','Whitefield','Santosh G','9889012345','Resolved'),
+                ('Water pipe leaking','Underground pipe burst causing water wastage','Water','Medium','Indiranagar','Ritu Mehta','9890123456','Pending'),
+                ('Damaged road divider','Road divider broken causing traffic snarls','Road','Low','Koramangala','Arjun P','9901234567','In Progress'),
+                ('No street lights in colony','Entire colony in darkness after 9PM','Electricity','Medium','Hebbal','Deepa M','9912345678','Resolved'),
             ]
             for i, s in enumerate(samples):
                 days_ago = random.randint(1, 90)
                 d = datetime.now() - timedelta(days=days_ago)
-                status = s[6]
+                status = s[7]
                 if status == 'Resolved':
-                    cursor.execute("INSERT INTO complaints (title,description,category,area,citizen_name,citizen_contact,status,created_at,resolved_at) VALUES (?,?,?,?,?,?,?,?,datetime('now'))", (*s[:6], status, d.isoformat()))
+                    cursor.execute("INSERT INTO complaints (title,description,category,priority,area,citizen_name,citizen_contact,status,created_at,resolved_at) VALUES (?,?,?,?,?,?,?,?,?,datetime('now'))", (*s[:7], status, d.isoformat()))
                 else:
-                    cursor.execute("INSERT INTO complaints (title,description,category,area,citizen_name,citizen_contact,status,created_at) VALUES (?,?,?,?,?,?,?,?)", (*s[:6], status, d.isoformat()))
+                    cursor.execute("INSERT INTO complaints (title,description,category,priority,area,citizen_name,citizen_contact,status,created_at) VALUES (?,?,?,?,?,?,?,?,?)", (*s[:7], status, d.isoformat()))
         
         cursor.execute("SELECT COUNT(*) FROM fund_allocations")
         if cursor.fetchone()[0] == 0:
