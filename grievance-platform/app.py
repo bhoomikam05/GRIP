@@ -279,6 +279,9 @@ def submit_complaint():
         area = data.get('area', '')
         citizen_name = data.get('citizen_name', 'Anonymous')
         citizen_contact = data.get('citizen_contact', '')
+        latitude = data.get('latitude')
+        longitude = data.get('longitude')
+        
         image_path = None
         if 'image' in request.files:
             file = request.files['image']
@@ -289,7 +292,7 @@ def submit_complaint():
                 os.makedirs(app.config['UPLOAD_FOLDER'], exist_ok=True)
                 file.save(os.path.join(app.config['UPLOAD_FOLDER'], filename))
                 image_path = filename
-        print(f"Submitting complaint: {title}, {category}, {priority}, {area}, sentiment={sentiment}")
+        print(f"Submitting complaint: {title}, {category}, {priority}, {area}, lat={latitude}, lon={longitude}, sentiment={sentiment}")
         conn = get_db()
         if not conn:
             return jsonify({'error': 'DB connection failed'}), 500
@@ -301,9 +304,9 @@ def submit_complaint():
         except:
             cursor.execute("ALTER TABLE complaints ADD COLUMN priority TEXT DEFAULT 'Medium'")
 
-        cursor.execute("""INSERT INTO complaints (title, description, category, priority, area, citizen_name, citizen_contact, image_path, status, sentiment, created_at)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'Pending', ?, datetime('now'))""",
-            (title, description, category, priority, area, citizen_name, citizen_contact, image_path, sentiment))
+        cursor.execute("""INSERT INTO complaints (title, description, category, priority, area, citizen_name, citizen_contact, image_path, status, sentiment, latitude, longitude, created_at)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'Pending', ?, ?, ?, datetime('now'))""",
+            (title, description, category, priority, area, citizen_name, citizen_contact, image_path, sentiment, latitude, longitude))
         complaint_id = cursor.lastrowid
         conn.commit()
         conn.close()
@@ -634,7 +637,7 @@ def setup_database():
             id INTEGER PRIMARY KEY AUTOINCREMENT, title TEXT NOT NULL, description TEXT,
             category TEXT, priority TEXT DEFAULT 'Medium', area TEXT, citizen_name TEXT, citizen_contact TEXT,
             image_path TEXT, status TEXT DEFAULT 'Pending', updated_by TEXT DEFAULT '', sentiment INTEGER DEFAULT 3,
-            created_at TEXT, resolved_at TEXT)""")
+            latitude REAL, longitude REAL, created_at TEXT, resolved_at TEXT)""")
         
         # Backward compatibility for existing tables
         try: cursor.execute("ALTER TABLE complaints ADD COLUMN priority TEXT DEFAULT 'Medium'")
@@ -642,6 +645,10 @@ def setup_database():
         try: cursor.execute("ALTER TABLE complaints ADD COLUMN updated_by TEXT DEFAULT ''")
         except: pass
         try: cursor.execute("ALTER TABLE complaints ADD COLUMN sentiment INTEGER DEFAULT 3")
+        except: pass
+        try: cursor.execute("ALTER TABLE complaints ADD COLUMN latitude REAL")
+        except: pass
+        try: cursor.execute("ALTER TABLE complaints ADD COLUMN longitude REAL")
         except: pass
         
         cursor.execute("""CREATE TABLE IF NOT EXISTS users (

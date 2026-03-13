@@ -228,12 +228,28 @@ textarea{resize:vertical;min-height:100px}
             </div>
             <div class="form-group full">
               <label>Upload Photo (optional)</label>
-              <div class="upload-zone" id="uploadZone">
-                <div class="upload-icon">📎</div>
-                <div class="upload-text">Drag & drop image here or <strong>click to browse</strong><br><small>PNG, JPG, GIF up to 16MB</small></div>
-                <input type="file" name="image" id="imageInput" accept="image/*" style="display:none">
+              <div style="display:grid;grid-template-columns:1fr 1fr;gap:1rem;margin-bottom:1rem">
+                <div class="upload-zone" id="uploadZone">
+                  <div class="upload-icon">📎</div>
+                  <div class="upload-text">Drag & drop or <strong>click to browse</strong></div>
+                  <input type="file" name="image" id="imageInput" accept="image/*" style="display:none">
+                </div>
+                <div class="upload-zone" id="cameraBtn" style="border-style:solid;display:flex;flex-direction:column;align-items:center;justify-content:center">
+                  <div class="upload-icon">📸</div>
+                  <div class="upload-text"><strong>Take Geotagged Photo</strong></div>
+                </div>
+              </div>
+              <div id="cameraContainer" style="display:none;margin-bottom:1rem;position:relative;background:#000;border-radius:12px;overflow:hidden">
+                <video id="video" width="100%" height="auto" autoplay playsinline></video>
+                <canvas id="canvas" style="display:none"></canvas>
+                <div style="position:absolute;bottom:1rem;left:0;right:0;display:flex;justify-content:center;gap:1rem">
+                  <button type="button" id="captureBtn" style="padding:0.75rem 1.5rem;background:var(--accent);color:#fff;border:none;border-radius:50px;font-weight:700;cursor:pointer">Snap Photo</button>
+                  <button type="button" id="cancelCameraBtn" style="padding:0.75rem 1.5rem;background:#fff;color:var(--ink);border:none;border-radius:50px;font-weight:700;cursor:pointer">Cancel</button>
+                </div>
               </div>
               <div id="imagePreview"></div>
+              <input type="hidden" name="latitude" id="latInput">
+              <input type="hidden" name="longitude" id="lngInput">
             </div>
           </div>
           <div style="display:flex;justify-content:flex-end;margin-top:1.5rem">
@@ -281,12 +297,24 @@ textarea{resize:vertical;min-height:100px}
           <div class="qlc-sub">Government officials can login here to access the dashboard and resolve complaints.</div>
           <div class="qlc-arrow">→</div>
         </a>
-        <div class="quick-link-card" style="cursor:pointer" onclick="setupDatabase()">
-          <div class="qlc-icon">🗄️</div>
-          <div class="qlc-title" id="setupTitle">Setup Database</div>
-          <div class="qlc-sub">First time? Initialize MySQL database with tables and demo data.</div>
-          <div class="qlc-arrow" id="setupArrow">→</div>
-        </div>
+        <a href="https://pgportal.gov.in/Home/AboutUs" target="_blank" class="quick-link-card">
+          <div class="qlc-icon">🏛️</div>
+          <div class="qlc-title">Central Grievance Portal</div>
+          <div class="qlc-sub"><marquee behavior="scroll" direction="left" scrollamount="4">Official CPGRAMS portal for specialized grievances at the central government level.</marquee></div>
+          <div class="qlc-arrow">→</div>
+        </a>
+        <a href="https://bbmp.gov.in/home" target="_blank" class="quick-link-card">
+          <div class="qlc-icon">🏙️</div>
+          <div class="qlc-title">BBMP Official Portal</div>
+          <div class="qlc-sub"><marquee behavior="scroll" direction="left" scrollamount="3">Bruhat Bengaluru Mahanagara Palike — Your direct access to city municipal services.</marquee></div>
+          <div class="qlc-arrow">→</div>
+        </a>
+        <a href="https://www.myscheme.gov.in/" target="_blank" class="quick-link-card">
+          <div class="qlc-icon">📜</div>
+          <div class="qlc-title">National Scheme Portal</div>
+          <div class="qlc-sub"><marquee behavior="scroll" direction="left" scrollamount="5">Explore government schemes and check your eligibility on the official myScheme platform.</marquee></div>
+          <div class="qlc-arrow">→</div>
+        </a>
       </div>
     </div>
   </div>
@@ -414,10 +442,101 @@ uploadZone.addEventListener('drop', e=>{
 });
 imageInput.addEventListener('change', ()=>{if(imageInput.files[0]) showPreview(imageInput.files[0])});
 
+// ── Camera & Geotagging Logic ────────────────────────────────────
+const cameraBtn = document.getElementById('cameraBtn');
+const cameraContainer = document.getElementById('cameraContainer');
+const video = document.getElementById('video');
+const canvas = document.getElementById('canvas');
+const captureBtn = document.getElementById('captureBtn');
+const cancelCameraBtn = document.getElementById('cancelCameraBtn');
+const latInput = document.getElementById('latInput');
+const lngInput = document.getElementById('lngInput');
+
+let stream = null;
+
+cameraBtn.addEventListener('click', async () => {
+    try {
+        stream = await navigator.mediaDevices.getUserMedia({ video: { facingMode: 'environment' } });
+        video.srcObject = stream;
+        cameraContainer.style.display = 'block';
+        uploadZone.parentElement.style.display = 'none';
+        
+        // Start getting location immediately for better response time
+        if (navigator.geolocation) {
+            navigator.geolocation.getCurrentPosition(position => {
+                latInput.value = position.coords.latitude;
+                lngInput.value = position.coords.longitude;
+                updateLocationFromCoords(position.coords.latitude, position.coords.longitude);
+            }, err => {
+                console.warn("Location error:", err);
+            }, { enableHighAccuracy: true });
+        }
+    } catch (err) {
+        showToast('❌ Camera Error', 'Please grant camera permissions to use this feature.');
+    }
+});
+
+function stopCamera() {
+    if (stream) {
+        stream.getTracks().forEach(track => track.stop());
+        stream = null;
+    }
+    cameraContainer.style.display = 'none';
+    uploadZone.parentElement.style.display = 'grid';
+}
+
+cancelCameraBtn.addEventListener('click', stopCamera);
+
+captureBtn.addEventListener('click', () => {
+    const context = canvas.getContext('2d');
+    canvas.width = video.videoWidth;
+    canvas.height = video.videoHeight;
+    context.drawImage(video, 0, 0, canvas.width, canvas.height);
+    
+    canvas.toBlob(blob => {
+        const file = new File([blob], "captured_photo.jpg", { type: "image/jpeg" });
+        const dataTransfer = new DataTransfer();
+        dataTransfer.items.add(file);
+        imageInput.files = dataTransfer.files;
+        showPreview(file);
+        stopCamera();
+        
+        // Ensure location is captured
+        if (!latInput.value && navigator.geolocation) {
+            navigator.geolocation.getCurrentPosition(position => {
+                latInput.value = position.coords.latitude;
+                lngInput.value = position.coords.longitude;
+                updateLocationFromCoords(position.coords.latitude, position.coords.longitude);
+            });
+        }
+        
+        showToast('📸 Photo Captured', 'Location geotagged successfully.');
+    }, 'image/jpeg', 0.8);
+});
+
+async function updateLocationFromCoords(lat, lon) {
+    map.setView([lat, lon], 15);
+    if(marker) map.removeLayer(marker);
+    marker = L.marker([lat, lon]).addTo(map);
+    
+    try{
+        const r = await fetch(`https://nominatim.openstreetmap.org/reverse?format=json&lat=${lat}&lon=${lon}`);
+        const d = await r.json();
+        const address = d.display_name || `${lat.toFixed(4)}, ${lon.toFixed(4)}`;
+        document.getElementById('areaInput').value = address;
+    }catch(err){
+        document.getElementById('areaInput').value = `${lat.toFixed(4)}, ${lon.toFixed(4)}`;
+    }
+}
+
 function showPreview(file){
   const reader = new FileReader();
   reader.onload = e=>{
-    imagePreview.innerHTML = `<img src="${e.target.result}" alt="Preview">`;
+    let locText = "";
+    if (latInput.value) {
+        locText = `<div style="font-size:0.75rem;color:var(--teal);margin-top:0.5rem;font-weight:600">📍 Location: ${latInput.value}, ${lngInput.value}</div>`;
+    }
+    imagePreview.innerHTML = `<img src="${e.target.result}" alt="Preview">${locText}`;
     imagePreview.style.display = 'block';
   };
   reader.readAsDataURL(file);

@@ -113,8 +113,7 @@ nav{position:fixed;top:0;left:0;right:0;z-index:100;background:var(--ink);paddin
   <div class="nav-links">
     <a href="index.html">Submit Complaint</a>
     <span id="authLinks" style="display:none">
-      <a href="dashboard.html" class="active">Dashboard</a>
-      <a href="funds.html">Fund Transparency</a>
+      <a href="citizen_dashboard.html" class="active">My Complaints</a>
     </span>
     <a href="#" id="logoutBtn" style="display:none" onclick="logout(event)">Logout</a>
     <a href="login.html" id="loginBtn">Login</a>
@@ -262,9 +261,11 @@ async function loadTable(){
 function renderRow(c){
   const photo = c.image_path ? `<img src="/uploads/${c.image_path}" class="photo-thumb" onclick="openLightbox('/uploads/${c.image_path}')" title="View photo">` : '';
   const daysOpen = getDaysOpen(c.created_at);
+  const geoTag = (c.latitude && c.longitude) ? `<div style="font-size:0.7rem;color:var(--teal);margin-top:0.25rem;font-weight:600">📍 Geo: ${c.latitude.toFixed(4)}, ${c.longitude.toFixed(4)}</div>` : '';
+  
   return `<tr>
     <td><a href="#" onclick="openTimeline(${c.id});return false" style="color:var(--accent);font-weight:700;text-decoration:none">#${c.id}</a></td>
-    <td style="max-width:200px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis" title="${escHtml(c.title)}">${escHtml(c.title)} ${photo}</td>
+    <td style="max-width:200px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis" title="${escHtml(c.title)}">${escHtml(c.title)} ${photo}${geoTag}</td>
     <td><span class="tag tag-cat">${c.category}</span></td>
     <td><span class="tag tag-pri-${c.priority || 'Medium'}">${c.priority || 'Medium'}</span></td>
     <td><span class="tag tag-area">${c.area}</span></td>
