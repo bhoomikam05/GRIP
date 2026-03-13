@@ -13,6 +13,13 @@ app.secret_key = os.environ.get('SECRET_KEY', 'change-me')
 app.config['UPLOAD_FOLDER'] = 'static/uploads'
 app.config['MAX_CONTENT_LENGTH'] = 16 * 1024 * 1024
 
+@app.after_request
+def add_cors_headers(response):
+    response.headers['Access-Control-Allow-Origin'] = '*'
+    response.headers['Access-Control-Allow-Headers'] = 'Content-Type,Authorization'
+    response.headers['Access-Control-Allow-Methods'] = 'GET,PUT,POST,DELETE,OPTIONS'
+    return response
+
 ALLOWED_EXTENSIONS = {'png', 'jpg', 'jpeg', 'gif', 'webp'}
 
 def allowed_file(filename):
@@ -57,37 +64,51 @@ def nlp_categorize(title, description):
     best = max(scores, key=scores.get)
     return best if scores[best] > 0 else 'Other'
 
-@app.route('/login', methods=['GET', 'POST'])
-def login():
-    if request.method == 'POST':
-        username = request.form.get('username', '')
-        password = request.form.get('password', '')
+@app.route('/api/login', methods=['POST'])
+def api_login():
+    try:
+        data = request.json
+        username = data.get('username', '')
+        password = data.get('password', '')
+        
         conn = get_db()
         cursor = conn.cursor()
-        cursor.execute('SELECT id, username, password_hash FROM users WHERE username=?', (username,))
+        cursor.execute('SELECT id, username, password_hash, role FROM users WHERE username=?', (username,))
         user = cursor.fetchone()
         conn.close()
+        
         if user and check_password_hash(user['password_hash'], password):
-            session['user'] = {'id': user['id'], 'username': user['username']}
-            return redirect(url_for('dashboard'))
-        return render_template('login.html', error='Invalid username or password')
+            session['user'] = {'id': user['id'], 'username': user['username'], 'role': user['role']}
+            return jsonify({'success': True, 'user': {'username': user['username'], 'role': user['role']}})
+        
+        return jsonify({'error': 'Invalid username or password'}), 401
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
+
+@app.route('/login')
+@app.route('/login.html')
+def login_view():
     return render_template('login.html')
 
 @app.route('/logout')
+@app.route('/logout.html')
 def logout():
     session.clear()
-    return redirect(url_for('login'))
+    return redirect(url_for('login_view'))
 
 @app.route('/')
+@app.route('/index.html')
 def index():
     return render_template('index.html', user=session.get('user'))
 
 @app.route('/dashboard')
+@app.route('/dashboard.html')
 @login_required
 def dashboard():
     return render_template('dashboard.html', user=session.get('user'))
 
 @app.route('/funds')
+@app.route('/funds.html')
 @login_required
 def funds():
     return render_template('funds.html', user=session.get('user'))

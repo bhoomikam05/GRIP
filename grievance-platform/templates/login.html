@@ -24,21 +24,99 @@ input:focus{border-color:var(--accent)}
 <body>
   <div class="card">
     <div class="logo">GR<span>IP</span> Login</div>
-    {% if error %}
-      <div class="error">{{ error }}</div>
-    {% endif %}
-    <form method="post" autocomplete="off">
+    <div id="errorMsg" class="error" style="display:none"></div>
+    <div style="display:flex;gap:0.5rem;margin-bottom:1.5rem">
+      <button class="btn" id="btnOfficial" style="background:var(--ink);color:#fff" onclick="setRole('official')">Official Login</button>
+      <button class="btn" id="btnCitizen" style="background:var(--paper);color:var(--ink);border:1px solid var(--border)" onclick="setRole('citizen')">Citizen Login</button>
+    </div>
+    <form id="loginForm" onsubmit="handleLogin(event)" autocomplete="off">
       <div class="form-group">
-        <label for="username">Username</label>
+        <label for="username">Username / Phone</label>
         <input id="username" name="username" type="text" autocomplete="username" required>
       </div>
-      <div class="form-group">
+      <div class="form-group" id="pwdGroup">
         <label for="password">Password</label>
-        <input id="password" name="password" type="password" autocomplete="current-password" required>
+        <input id="password" name="password" type="password" autocomplete="current-password">
       </div>
-      <button class="btn" type="submit">Login</button>
+      <button class="btn" type="submit" id="submitBtn">Login as Official</button>
     </form>
-    <p style="margin-top:1rem;font-size:0.85rem;color:var(--muted);text-align:center;">Default admin: <strong>admin</strong> / <strong>admin123</strong></p>
+    <p id="hintText" style="margin-top:1rem;font-size:0.85rem;color:var(--muted);text-align:center;">Default admin: <strong>admin</strong> / <strong>admin123</strong></p>
   </div>
+  <script>
+    let currentRole = 'official';
+    
+    function setRole(role) {
+      currentRole = role;
+      const btnO = document.getElementById('btnOfficial');
+      const btnC = document.getElementById('btnCitizen');
+      const pwdGroup = document.getElementById('pwdGroup');
+      const pwdInput = document.getElementById('password');
+      const submitBtn = document.getElementById('submitBtn');
+      const hintText = document.getElementById('hintText');
+      const errorMsg = document.getElementById('errorMsg');
+      
+      errorMsg.style.display = 'none';
+      
+      if(role === 'official') {
+        btnO.style.background = 'var(--ink)'; btnO.style.color = '#fff'; btnO.style.border = 'none';
+        btnC.style.background = 'var(--paper)'; btnC.style.color = 'var(--ink)'; btnC.style.border = '1px solid var(--border)';
+        pwdGroup.style.display = 'flex';
+        pwdInput.required = true;
+        submitBtn.textContent = 'Login as Official';
+        hintText.innerHTML = 'Default admin: <strong>admin</strong> / <strong>admin123</strong>';
+      } else {
+        btnC.style.background = 'var(--ink)'; btnC.style.color = '#fff'; btnC.style.border = 'none';
+        btnO.style.background = 'var(--paper)'; btnO.style.color = 'var(--ink)'; btnO.style.border = '1px solid var(--border)';
+        pwdGroup.style.display = 'none';
+        pwdInput.required = false;
+        submitBtn.textContent = 'Continue as Citizen';
+        hintText.innerHTML = 'Enter your 10-digit mobile number to track complaints.';
+      }
+    }
+    
+    async function handleLogin(e) {
+      e.preventDefault();
+      const user = document.getElementById('username').value;
+      const pass = document.getElementById('password').value;
+      const err = document.getElementById('errorMsg');
+      const submitBtn = document.getElementById('submitBtn');
+      
+      err.style.display = 'none';
+      
+      if(currentRole === 'citizen') {
+        localStorage.setItem('grip_user', JSON.stringify({username: user, role: 'citizen'}));
+        window.location.href = 'index.html';
+        return;
+      }
+      
+      submitBtn.disabled = true;
+      submitBtn.textContent = 'Authenticating...';
+      
+      try {
+        const response = await fetch('/api/login', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ username: user, password: pass })
+        });
+        
+        const data = await response.json();
+        
+        if(data.success) {
+          localStorage.setItem('grip_user', JSON.stringify(data.user));
+          window.location.href = 'dashboard.html';
+        } else {
+          err.textContent = data.error || 'Invalid credentials';
+          err.style.display = 'block';
+          submitBtn.disabled = false;
+          submitBtn.textContent = 'Login as Official';
+        }
+      } catch(error) {
+        err.textContent = 'Server connection failed';
+        err.style.display = 'block';
+        submitBtn.disabled = false;
+        submitBtn.textContent = 'Login as Official';
+      }
+    }
+  </script>
 </body>
 </html>

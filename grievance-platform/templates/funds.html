@@ -101,14 +101,13 @@ nav{position:fixed;top:0;left:0;right:0;z-index:100;background:var(--ink);paddin
 <nav>
   <div class="nav-logo">GR<span>IP</span></div>
   <div class="nav-links">
-    <a href="/">Submit Complaint</a>
-    <a href="/dashboard">Dashboard</a>
-    <a href="/funds" class="active">Fund Transparency</a>
-    {% if user %}
-      <a href="/logout">Logout ({{ user.username }})</a>
-    {% else %}
-      <a href="/login">Login</a>
-    {% endif %}
+    <a href="index.html">Submit Complaint</a>
+    <span id="authLinks" style="display:none">
+      <a href="dashboard.html">Dashboard</a>
+      <a href="funds.html" class="active">Fund Transparency</a>
+    </span>
+    <a href="#" id="logoutBtn" style="display:none" onclick="logout(event)">Logout</a>
+    <a href="login.html" id="loginBtn">Login</a>
   </div>
 </nav>
 
@@ -213,8 +212,40 @@ function fmtCrore(v){
   if(v>=100000) return '₹'+((v/100000).toFixed(1))+' L';
   return '₹'+v.toLocaleString('en-IN');
 }
+// ── Auth Handling & Protection ─────────────────────────────────────────
+function checkAuth() {
+  const userJson = localStorage.getItem('grip_user');
+  if(!userJson) {
+      window.location.href = 'login.html';
+      return;
+  }
+  const user = JSON.parse(userJson);
+  if(user.role !== 'official' && user.role !== 'admin') {
+      window.location.href = 'index.html';
+      return;
+  }
+  
+  const authLinks = document.getElementById('authLinks');
+  const logoutBtn = document.getElementById('logoutBtn');
+  const loginBtn = document.getElementById('loginBtn');
 
-async function loadBudget(){
+  if(loginBtn) loginBtn.style.display = 'none';
+  if(logoutBtn) {
+      logoutBtn.style.display = 'inline-block';
+      logoutBtn.textContent = 'Logout (' + user.username + ')';
+  }
+  if(authLinks) authLinks.style.display = 'inline-block';
+}
+
+function logout(e) {
+  if(e) e.preventDefault();
+  localStorage.removeItem('grip_user');
+  window.location.href = 'index.html';
+}
+
+checkAuth();
+
+async function loadSummary() {
   try{
     const r = await fetch('/api/funds/summary');
     const d = await r.json();

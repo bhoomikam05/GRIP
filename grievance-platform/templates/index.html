@@ -94,7 +94,7 @@ textarea{resize:vertical;min-height:100px}
 .complaint-card::after{content:'';position:absolute;bottom:0;left:0;right:0;height:3px}
 .complaint-card.Pending::after{background:var(--warn)}
 .complaint-card.Resolved::after{background:var(--teal)}
-.complaint-card.In.Progress::after{background:#4361EE}
+.complaint-card.In-Progress::after{background:#4361EE}
 .complaint-card.Rejected::after{background:var(--muted)}
 .card-head{display:flex;justify-content:space-between;align-items:flex-start;margin-bottom:0.75rem;gap:0.5rem}
 .card-title{font-family:'Syne',sans-serif;font-weight:700;font-size:0.95rem;line-height:1.3}
@@ -106,7 +106,7 @@ textarea{resize:vertical;min-height:100px}
 .tag-area{background:#2A9D8F15;color:var(--teal)}
 .tag-status-Pending{background:#F4A26115;color:#E07020}
 .tag-status-Resolved{background:#2A9D8F15;color:var(--teal)}
-.tag-status-In\ Progress{background:#4361EE15;color:#4361EE}
+.tag-status-In-Progress{background:#4361EE15;color:#4361EE}
 .tag-status-Rejected{background:#6B6B7A15;color:var(--muted)}
 .card-footer{font-size:0.75rem;color:var(--muted);display:flex;justify-content:space-between;align-items:center}
 .card-citizen{font-weight:500;color:var(--ink)}
@@ -140,14 +140,13 @@ textarea{resize:vertical;min-height:100px}
 <nav>
   <div class="nav-logo">GR<span>IP</span></div>
   <div class="nav-links">
-    <a href="/" class="active">Submit Complaint</a>
-    <a href="/dashboard">Dashboard</a>
-    <a href="/funds">Fund Transparency</a>
-    {% if user %}
-      <a href="/logout">Logout ({{ user.username }})</a>
-    {% else %}
-      <a href="/login">Login</a>
-    {% endif %}
+    <a href="index.html" class="active">Submit Complaint</a>
+    <span id="authLinks" style="display:none">
+      <a href="dashboard.html">Dashboard</a>
+      <a href="funds.html">Fund Transparency</a>
+    </span>
+    <a href="#" id="logoutBtn" style="display:none" onclick="logout(event)">Logout</a>
+    <a href="login.html" id="loginBtn">Login</a>
   </div>
 </nav>
 
@@ -250,16 +249,24 @@ textarea{resize:vertical;min-height:100px}
         <div class="section-title">Quick Access</div>
       </div>
       <div style="display:flex;flex-direction:column;gap:1rem">
-        <a href="/dashboard" class="quick-link-card">
-          <div class="qlc-icon">📊</div>
-          <div class="qlc-title">Complaints Dashboard</div>
-          <div class="qlc-sub">Monitor all complaints by category, area, and status with live charts and trends.</div>
-          <div class="qlc-arrow">→</div>
-        </a>
-        <a href="/funds" class="quick-link-card">
-          <div class="qlc-icon">💰</div>
-          <div class="qlc-title">Fund & Vendor Transparency</div>
-          <div class="qlc-sub">Track government fund allocation, contractor performance, and area-wise spending.</div>
+        <div id="officialQuickLinks" style="display:none;flex-direction:column;gap:1rem">
+          <a href="dashboard.html" class="quick-link-card">
+            <div class="qlc-icon">📊</div>
+            <div class="qlc-title">Complaints Dashboard</div>
+            <div class="qlc-sub">Monitor all complaints by category, area, and status with live charts and trends.</div>
+            <div class="qlc-arrow">→</div>
+          </a>
+          <a href="funds.html" class="quick-link-card">
+            <div class="qlc-icon">💰</div>
+            <div class="qlc-title">Fund & Vendor Transparency</div>
+            <div class="qlc-sub">Track government fund allocation, contractor performance, and area-wise spending.</div>
+            <div class="qlc-arrow">→</div>
+          </a>
+        </div>
+        <a href="login.html" class="quick-link-card" id="loginQuickLink">
+          <div class="qlc-icon">🔒</div>
+          <div class="qlc-title">Official Login</div>
+          <div class="qlc-sub">Government officials can login here to access the dashboard and resolve complaints.</div>
           <div class="qlc-arrow">→</div>
         </a>
         <div class="quick-link-card" style="cursor:pointer" onclick="setupDatabase()">
@@ -296,6 +303,36 @@ textarea{resize:vertical;min-height:100px}
 </div>
 
 <script>
+// ── Auth Handling ───────────────────────────────────────────────
+function checkAuth() {
+  const userJson = localStorage.getItem('grip_user');
+  const authLinks = document.getElementById('authLinks');
+  const logoutBtn = document.getElementById('logoutBtn');
+  const loginBtn = document.getElementById('loginBtn');
+  const offQL = document.getElementById('officialQuickLinks');
+  const logQL = document.getElementById('loginQuickLink');
+
+  if(userJson) {
+    const user = JSON.parse(userJson);
+    loginBtn.style.display = 'none';
+    logoutBtn.style.display = 'inline-block';
+    logoutBtn.textContent = 'Logout (' + user.username + ')';
+    if(logQL) logQL.style.display = 'none';
+    
+    if(user.role === 'official' || user.role === 'admin') {
+      if(authLinks) authLinks.style.display = 'inline-block';
+      if(offQL) offQL.style.display = 'flex';
+    }
+  }
+}
+function logout(e) {
+  if(e) e.preventDefault();
+  localStorage.removeItem('grip_user');
+  window.location.href = 'index.html';
+}
+
+checkAuth();
+
 // ── AI Auto-categorize ──────────────────────────────────────────
 let aiTimer;
 const titleInput = document.getElementById('titleInput');
@@ -407,7 +444,7 @@ async function loadComplaints(){
       return;
     }
     grid.innerHTML = complaints.map(c=>`
-      <div class="complaint-card ${c.status.replace(' ','.')}">
+      <div class="complaint-card ${c.status.replace(' ', '-')}">
         <div class="card-head">
           <div class="card-title">${escHtml(c.title)}</div>
           <div class="card-id">#${c.id}</div>
@@ -416,7 +453,7 @@ async function loadComplaints(){
         <div class="card-meta">
           <span class="tag tag-cat">${c.category}</span>
           <span class="tag tag-area">📍 ${c.area}</span>
-          <span class="tag tag-status-${c.status}">${c.status}</span>
+          <span class="tag tag-status-${c.status.replace(' ', '-')}">${c.status}</span>
         </div>
         <div class="card-footer">
           <span class="card-citizen">👤 ${escHtml(c.citizen_name||'Anonymous')}</span>
