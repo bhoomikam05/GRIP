@@ -317,53 +317,59 @@ textarea{resize:vertical;min-height:100px}
 
 <script>
 // ── Auth Handling ───────────────────────────────────────────────
-function checkAuth() {
-  const userJson = localStorage.getItem('grip_user');
-  const authLinks = document.getElementById('authLinks');
-  const logoutBtn = document.getElementById('logoutBtn');
-  const loginBtn = document.getElementById('loginBtn');
-  const offQL = document.getElementById('officialQuickLinks');
-  const citQL = document.getElementById('citQL');
-  const logQL = document.getElementById('loginQuickLink');
+let currentUser = null;
 
-  if(userJson) {
-    const user = JSON.parse(userJson);
-    loginBtn.style.display = 'none';
-    logoutBtn.style.display = 'inline-block';
-    logoutBtn.textContent = 'Logout (' + user.username + ')';
-    if(logQL) logQL.style.display = 'none';
-    
-    if(user.role === 'official' || user.role === 'admin') {
+// ── Auth Handling & Protection ─────────────────────────────────────────
+async function checkAuth() {
+  try {
+    const r = await fetch('/api/me');
+    const d = await r.json();
+    if(d.user) {
+      currentUser = d.user;
+      const authLinks = document.getElementById('authLinks');
+      const logoutBtn = document.getElementById('logoutBtn');
+      const loginBtn = document.getElementById('loginBtn');
+      const offQL = document.getElementById('officialQuickLinks');
+      const citQL = document.getElementById('citQL');
+      const logQL = document.getElementById('loginQuickLink');
+      
+      loginBtn.style.display = 'none';
+      logoutBtn.style.display = 'inline-block';
+      logoutBtn.href = '/logout';
+      logoutBtn.textContent = 'Logout (' + currentUser.username + ')';
+      if(logQL) logQL.style.display = 'none';
+      
       if(authLinks) authLinks.style.display = 'inline-block';
-      document.getElementById('navDashboard').style.display = 'inline-block';
-      document.getElementById('navFunds').style.display = 'inline-block';
-      if(offQL) offQL.style.display = 'flex';
-    } else if(user.role === 'citizen') {
-      if(authLinks) authLinks.style.display = 'inline-block';
-      document.getElementById('navCitizen').style.display = 'inline-block';
-      if(citQL) citQL.style.display = 'flex';
+
+      if(currentUser.role === 'official' || currentUser.role === 'admin') {
+        document.getElementById('navDashboard').style.display = 'inline-block';
+        document.getElementById('navFunds').style.display = 'inline-block';
+        if(offQL) offQL.style.display = 'flex';
+      } else if(currentUser.role === 'citizen') {
+        document.getElementById('navCitizen').style.display = 'inline-block';
+        if(citQL) citQL.style.display = 'flex';
+      }
     }
+  } catch(e) {
+    // console.error("Failed to fetch user data:", e);
   }
 }
+
 function logout(e) {
   if(e) e.preventDefault();
-  localStorage.removeItem('grip_user');
-  window.location.href = 'index.html';
+  // Logout is now handled by the backend, redirecting to /logout will clear the session.
+  window.location.href = '/logout';
 }
 
 checkAuth();
 
 // ── Auto-fill citizen info from login ───────────────────────────
 (function autoFillCitizen(){
-  const uJson = localStorage.getItem('grip_user');
-  if(uJson){
-    const user = JSON.parse(uJson);
-    if(user.role === 'citizen'){
-      const nameField = document.querySelector('input[name="citizen_name"]');
-      const contactField = document.querySelector('input[name="citizen_contact"]');
-      if(contactField) { contactField.value = user.username; contactField.readOnly = true; }
-      if(nameField && user.display_name) { nameField.value = user.display_name; }
-    }
+  if(currentUser && currentUser.role === 'citizen'){
+    const nameField = document.querySelector('input[name="citizen_name"]');
+    const contactField = document.querySelector('input[name="citizen_contact"]');
+    if(contactField) { contactField.value = currentUser.username; contactField.readOnly = true; }
+    if(nameField && currentUser.display_name) { nameField.value = currentUser.display_name; }
   }
 })();
 

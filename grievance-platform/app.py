@@ -7,6 +7,8 @@ from datetime import datetime, timedelta
 import random
 from werkzeug.security import generate_password_hash, check_password_hash
 from werkzeug.utils import secure_filename
+import jwt
+from functools import wraps
 
 app = Flask(__name__)
 app.secret_key = os.environ.get('SECRET_KEY', 'change-me')
@@ -36,14 +38,47 @@ def get_db():
         print(f"DB Error: {e}")
         return None
 
-# --- Auth helpers -----------------------------------------------------------
+# --- Auth helpers & Audit ---------------------------------------------------
+
+def log_audit(username, action, details):
+    try:
+        conn = get_db()
+        cursor = conn.cursor()
+        cursor.execute("INSERT INTO audit_logs (username, action, details, timestamp) VALUES (?, ?, ?, datetime('now'))",
+                       (username, action, details))
+        conn.commit()
+        conn.close()
+    except Exception as e:
+        print(f"Audit log failed: {e}")
 
 def login_required(fn):
+    @wraps(fn)
     def wrapper(*args, **kwargs):
-        if not session.get('user'):
-            return redirect(url_for('login'))
-        return fn(*args, **kwargs)
-    wrapper.__name__ = fn.__name__
+        token = request.cookies.get('token')
+        if not token:
+            return redirect(url_for('login_view'))
+        try:
+            data = jwt.decode(token, app.config['SECRET_KEY'], algorithms=['HS256'])
+            request.user = data
+            return fn(*args, **kwargs)
+        except:
+            return redirect(url_for('login_view'))
+    return wrapper
+
+def admin_required(fn):
+    @wraps(fn)
+    def wrapper(*args, **kwargs):
+        token = request.cookies.get('token')
+        if not token:
+            return jsonify({'error': 'Unauthorized'}), 401
+        try:
+            data = jwt.decode(token, app.config['SECRET_KEY'], algorithms=['HS256'])
+            if data.get('role') != 'admin':
+                return jsonify({'error': 'Admin access required'}), 403
+            request.user = data
+            return fn(*args, **kwargs)
+        except:
+            return jsonify({'error': 'Invalid token'}), 401
     return wrapper
 
 CATEGORY_KEYWORDS = {
@@ -81,7 +116,38 @@ def nlp_categorize_and_prioritize(title, description):
     best_cat = max(scores, key=scores.get)
     category = best_cat if scores[best_cat] > 0 else 'Other'
     
-    return category, priority
+    # Sentiment analysis (1-5 scale)
+    angry_words = ['angry', 'furious', 'outraged', 'disgusted', 'pathetic', 'useless', 'incompetent',
+                   'worst', 'terrible', 'horrible', 'shameful', 'unacceptable', 'ridiculous', 'fed up',
+                   'sick of', 'tired of', 'hate', 'frustrated', 'corruption', 'negligence', 'scam']
+    frustrated_words = ['disappointed', 'annoyed', 'unhappy', 'poor', 'bad', 'slow', 'delay',
+                        'ignored', 'neglected', 'careless', 'complaint', 'problem', 'issue', 'broken',
+                        'damaged', 'failed', 'not working', 'no response', 'still pending', 'weeks',
+                        'months', 'repeated', 'again', 'multiple times', 'no action']
+    urgent_words = ['urgent', 'emergency', 'danger', 'accident', 'critical', 'fatal', 'life threatening',
+                    'health hazard', 'children at risk', 'immediately', 'asap', 'dying', 'death']
+    calm_words = ['please', 'kindly', 'request', 'would appreciate', 'thank', 'grateful', 'suggestion']
+    
+    sentiment_score = 3  # neutral default
+    angry_count = sum(1 for w in angry_words if w in text)
+    frustrated_count = sum(1 for w in frustrated_words if w in text)
+    urgent_count = sum(1 for w in urgent_words if w in text)
+    calm_count = sum(1 for w in calm_words if w in text)
+    
+    if angry_count >= 2 or urgent_count >= 2:
+        sentiment_score = 5
+    elif angry_count >= 1 or urgent_count >= 1:
+        sentiment_score = 4
+    elif frustrated_count >= 3:
+        sentiment_score = 4
+    elif frustrated_count >= 1:
+        sentiment_score = 3
+    elif calm_count >= 2:
+        sentiment_score = 1
+    elif calm_count >= 1:
+        sentiment_score = 2
+    
+    return category, priority, sentiment_score
 
 @app.route('/api/login', methods=['POST'])
 def api_login():
@@ -92,13 +158,27 @@ def api_login():
         
         conn = get_db()
         cursor = conn.cursor()
-        cursor.execute('SELECT id, username, password_hash, role FROM users WHERE username=?', (username,))
+        cursor.execute('SELECT id, username, password_hash, role, assigned_area, assigned_category FROM users WHERE username=?', (username,))
         user = cursor.fetchone()
         conn.close()
         
         if user and check_password_hash(user['password_hash'], password):
-            session['user'] = {'id': user['id'], 'username': user['username'], 'role': user['role']}
-            return jsonify({'success': True, 'user': {'username': user['username'], 'role': user['role']}})
+            # Create JWT token
+            token_data = {
+                'id': user['id'],
+                'username': user['username'],
+                'role': user['role'],
+                'assigned_area': user['assigned_area'],
+                'assigned_category': user['assigned_category'],
+                'exp': datetime.utcnow() + timedelta(days=7)
+            }
+            token = jwt.encode(token_data, app.config['SECRET_KEY'], algorithm='HS256')
+            
+            log_audit(user['username'], 'LOGIN', f"User logged in from {request.remote_addr}")
+            
+            resp = jsonify({'success': True, 'user': {'username': user['username'], 'role': user['role']}})
+            resp.set_cookie('token', token, httponly=True, secure=False, samesite='Lax', max_age=7*24*3600)
+            return resp
         
         return jsonify({'error': 'Invalid username or password'}), 401
     except Exception as e:
@@ -112,7 +192,7 @@ def api_register():
         password = data.get('password', '')
         
         if not username or not password:
-            return jsonify({'error': 'Phone number and password are required'}), 400
+            return jsonify({'error': 'Missing fields'}), 400
             
         conn = get_db()
         cursor = conn.cursor()
@@ -129,8 +209,14 @@ def api_register():
         conn.commit()
         conn.close()
         
-        session['user'] = {'id': user_id, 'username': username, 'role': 'citizen'}
-        return jsonify({'success': True, 'user': {'username': username, 'role': 'citizen'}})
+        token_data = {'id': user_id, 'username': username, 'role': 'citizen', 'exp': datetime.utcnow() + timedelta(days=7)}
+        token = jwt.encode(token_data, app.config['SECRET_KEY'], algorithm='HS256')
+        
+        log_audit(username, 'REGISTER', "New citizen account created")
+        
+        resp = jsonify({'success': True, 'user': {'username': username, 'role': 'citizen'}})
+        resp.set_cookie('token', token, httponly=True, secure=False, samesite='Lax', max_age=7*24*3600)
+        return resp
     except Exception as e:
         return jsonify({'error': str(e)}), 500
 
@@ -142,29 +228,42 @@ def login_view():
 @app.route('/logout')
 @app.route('/logout.html')
 def logout():
-    session.clear()
-    return redirect(url_for('login_view'))
+    resp = redirect(url_for('login_view'))
+    resp.delete_cookie('token')
+    return resp
+
+@app.route('/api/me', methods=['GET'])
+def api_me():
+    token = request.cookies.get('token')
+    if not token:
+        return jsonify({'user': None})
+    try:
+        data = jwt.decode(token, app.config['SECRET_KEY'], algorithms=['HS256'])
+        return jsonify({'user': data})
+    except:
+        return jsonify({'user': None})
 
 @app.route('/')
 @app.route('/index.html')
 def index():
-    return render_template('index.html', user=session.get('user'))
+    return render_template('index.html')
 
 @app.route('/dashboard')
 @app.route('/dashboard.html')
 @login_required
 def dashboard():
-    return render_template('dashboard.html', user=session.get('user'))
+    return render_template('dashboard.html')
 
 @app.route('/citizen_dashboard.html')
+@login_required
 def citizen_dashboard():
-    return render_template('citizen_dashboard.html', user=session.get('user'))
+    return render_template('citizen_dashboard.html')
 
 @app.route('/funds')
 @app.route('/funds.html')
 @login_required
 def funds():
-    return render_template('funds.html', user=session.get('user'))
+    return render_template('funds.html')
 
 @app.route('/api/complaints', methods=['POST'])
 def submit_complaint():
@@ -173,7 +272,7 @@ def submit_complaint():
         title = data.get('title', '')
         description = data.get('description', '')
         
-        auto_cat, auto_pri = nlp_categorize_and_prioritize(title, description)
+        auto_cat, auto_pri, sentiment = nlp_categorize_and_prioritize(title, description)
         category = data.get('category', '') or auto_cat
         priority = auto_pri
 
@@ -190,7 +289,7 @@ def submit_complaint():
                 os.makedirs(app.config['UPLOAD_FOLDER'], exist_ok=True)
                 file.save(os.path.join(app.config['UPLOAD_FOLDER'], filename))
                 image_path = filename
-        print(f"Submitting complaint: {title}, {category}, {priority}, {area}")
+        print(f"Submitting complaint: {title}, {category}, {priority}, {area}, sentiment={sentiment}")
         conn = get_db()
         if not conn:
             return jsonify({'error': 'DB connection failed'}), 500
@@ -202,9 +301,9 @@ def submit_complaint():
         except:
             cursor.execute("ALTER TABLE complaints ADD COLUMN priority TEXT DEFAULT 'Medium'")
 
-        cursor.execute("""INSERT INTO complaints (title, description, category, priority, area, citizen_name, citizen_contact, image_path, status, created_at)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'Pending', datetime('now'))""",
-            (title, description, category, priority, area, citizen_name, citizen_contact, image_path))
+        cursor.execute("""INSERT INTO complaints (title, description, category, priority, area, citizen_name, citizen_contact, image_path, status, sentiment, created_at)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'Pending', ?, datetime('now'))""",
+            (title, description, category, priority, area, citizen_name, citizen_contact, image_path, sentiment))
         complaint_id = cursor.lastrowid
         conn.commit()
         conn.close()
@@ -258,24 +357,166 @@ def update_status(complaint_id):
     try:
         data = request.json
         new_status = data.get('status')
-        updated_by = data.get('updated_by', 'Unknown')
+        updated_by_name = request.user['username'] if hasattr(request, 'user') else 'Anonymous'
         conn = get_db()
         cursor = conn.cursor()
+        # Get old status for history
+        cursor.execute("SELECT status FROM complaints WHERE id=?", (complaint_id,))
+        row = cursor.fetchone()
+        old_status = row['status'] if row else 'Unknown'
         if new_status == 'Resolved':
-            cursor.execute("UPDATE complaints SET status=?, updated_by=?, resolved_at=datetime('now') WHERE id=?", (new_status, updated_by, complaint_id))
+            cursor.execute("UPDATE complaints SET status=?, updated_by=?, resolved_at=datetime('now') WHERE id=?", (new_status, updated_by_name, complaint_id))
         else:
-            cursor.execute("UPDATE complaints SET status=?, updated_by=? WHERE id=?", (new_status, updated_by, complaint_id))
+            cursor.execute("UPDATE complaints SET status=?, updated_by=? WHERE id=?", (new_status, updated_by_name, complaint_id))
+        # Log to history
+        cursor.execute("INSERT INTO complaint_history (complaint_id, old_status, new_status, changed_by, changed_at) VALUES (?, ?, ?, ?, datetime('now'))",
+            (complaint_id, old_status, new_status, updated_by_name))
+        
+        # Log to audit table
+        log_audit(updated_by_name, 'STATUS_UPDATE', f"Updated complaint #{complaint_id} from {old_status} to {new_status}")
+        
         conn.commit()
         conn.close()
         return jsonify({'success': True})
     except Exception as e:
         return jsonify({'error': str(e)}), 500
 
+@app.route('/api/officials', methods=['GET', 'POST'])
+@admin_required
+def manage_officials():
+    conn = get_db()
+    cursor = conn.cursor()
+    if request.method == 'GET':
+        cursor.execute("SELECT id, username, assigned_area, assigned_category FROM users WHERE role='official'")
+        officials = [dict(r) for r in cursor.fetchall()]
+        conn.close()
+        return jsonify(officials)
+    elif request.method == 'POST':
+        data = request.json
+        username = data.get('username')
+        password = data.get('password')
+        area = data.get('assigned_area', '')
+        category = data.get('assigned_category', '')
+        if not username or not password:
+            return jsonify({'error': 'Username and password required'}), 400
+        
+        try:
+            pwd_hash = generate_password_hash(password)
+            cursor.execute("INSERT INTO users (username, password_hash, role, assigned_area, assigned_category) VALUES (?,?,'official',?,?)",
+                           (username, pwd_hash, area, category))
+            conn.commit()
+            log_audit(request.user['username'], 'OFFICIAL_CREATED', f"Created official account: {username}")
+        except Exception as e:
+            conn.close()
+            return jsonify({'error': str(e)}), 400
+        conn.close()
+        return jsonify({'success': True})
+
+@app.route('/api/officials/<int:id>', methods=['DELETE'])
+@admin_required
+def delete_official(id):
+    conn = get_db()
+    cursor = conn.cursor()
+    cursor.execute("SELECT username FROM users WHERE id=? AND role='official'", (id,))
+    user = cursor.fetchone()
+    if user:
+        cursor.execute("DELETE FROM users WHERE id=?", (id,))
+        conn.commit()
+        log_audit(request.user['username'], 'OFFICIAL_DELETED', f"Deleted official account: {user['username']}")
+    conn.close()
+    return jsonify({'success': True})
+
+@app.route('/api/audit_logs', methods=['GET'])
+@admin_required
+def get_audit_logs():
+    conn = get_db()
+    cursor = conn.cursor()
+    cursor.execute("SELECT * FROM audit_logs ORDER BY timestamp DESC LIMIT 50")
+    logs = [dict(r) for r in cursor.fetchall()]
+    conn.close()
+    return jsonify(logs)
+
+@app.route('/api/export_complaints', methods=['GET'])
+@admin_required
+def export_complaints():
+    try:
+        conn = get_db()
+        cursor = conn.cursor()
+        cursor.execute("SELECT id, title, category, priority, area, status, created_at FROM complaints")
+        rows = cursor.fetchall()
+        conn.close()
+        
+        log_audit(request.user['username'], 'DATA_EXPORT', "Exported complaints dataset to CSV")
+        
+        # Simple CSV generation for MVP
+        csv_data = "ID,Title,Category,Priority,Area,Status,Created At\n"
+        for r in rows:
+            title = str(r['title']).replace(',', ' ').replace('"', '')
+            csv_data += f"{r['id']},{title},{r['category']},{r['priority']},{r['area']},{r['status']},{r['created_at']}\n"
+            
+        import io
+        from flask import make_response
+        output = make_response(csv_data)
+        output.headers["Content-Disposition"] = "attachment; filename=complaints_export.csv"
+        output.headers["Content-type"] = "text/csv"
+        return output
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
+
+@app.route('/api/complaints/<int:complaint_id>/history', methods=['GET'])
+def get_complaint_history(complaint_id):
+    try:
+        conn = get_db()
+        cursor = conn.cursor()
+        cursor.execute("SELECT * FROM complaint_history WHERE complaint_id=? ORDER BY changed_at ASC", (complaint_id,))
+        history = [dict(h) for h in cursor.fetchall()]
+        conn.close()
+        return jsonify(history)
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
+
+@app.route('/api/complaints/<int:complaint_id>/rate', methods=['POST'])
+def rate_complaint(complaint_id):
+    try:
+        data = request.json
+        rating = data.get('rating')
+        feedback_text = data.get('feedback_text', '')
+        if not rating or not (1 <= int(rating) <= 5):
+            return jsonify({'error': 'Rating must be 1-5'}), 400
+        conn = get_db()
+        cursor = conn.cursor()
+        cursor.execute("INSERT OR REPLACE INTO complaint_ratings (complaint_id, rating, feedback_text, created_at) VALUES (?,?,?,datetime('now'))",
+            (complaint_id, int(rating), feedback_text))
+        conn.commit()
+        conn.close()
+        return jsonify({'success': True})
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
+
+@app.route('/api/complaints/<int:complaint_id>/rating', methods=['GET'])
+def get_complaint_rating(complaint_id):
+    try:
+        conn = get_db()
+        cursor = conn.cursor()
+        cursor.execute("SELECT * FROM complaint_ratings WHERE complaint_id=?", (complaint_id,))
+        row = cursor.fetchone()
+        conn.close()
+        if row:
+            return jsonify(dict(row))
+        return jsonify({})
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
+
+@app.route('/uploads/<filename>')
+def uploaded_file(filename):
+    return send_from_directory(app.config['UPLOAD_FOLDER'], filename)
+
 @app.route('/api/complaints/stats', methods=['GET'])
 def complaint_stats():
     try:
         conn = get_db()
         cursor = conn.cursor()
+        
         cursor.execute("SELECT COUNT(*) as total FROM complaints")
         total = cursor.fetchone()[0]
         cursor.execute("SELECT COUNT(*) as count FROM complaints WHERE status='Pending'")
@@ -300,8 +541,8 @@ def complaint_stats():
 @app.route('/api/categorize', methods=['POST'])
 def categorize():
     data = request.json
-    category, priority = nlp_categorize_and_prioritize(data.get('title',''), data.get('description',''))
-    return jsonify({'category': category, 'priority': priority})
+    category, priority, sentiment = nlp_categorize_and_prioritize(data.get('title',''), data.get('description',''))
+    return jsonify({'category': category, 'priority': priority, 'sentiment': sentiment})
 
 @app.route('/api/funds/summary', methods=['GET'])
 def fund_summary():
@@ -392,7 +633,7 @@ def setup_database():
         cursor.execute("""CREATE TABLE IF NOT EXISTS complaints (
             id INTEGER PRIMARY KEY AUTOINCREMENT, title TEXT NOT NULL, description TEXT,
             category TEXT, priority TEXT DEFAULT 'Medium', area TEXT, citizen_name TEXT, citizen_contact TEXT,
-            image_path TEXT, status TEXT DEFAULT 'Pending', updated_by TEXT DEFAULT '',
+            image_path TEXT, status TEXT DEFAULT 'Pending', updated_by TEXT DEFAULT '', sentiment INTEGER DEFAULT 3,
             created_at TEXT, resolved_at TEXT)""")
         
         # Backward compatibility for existing tables
@@ -400,8 +641,19 @@ def setup_database():
         except: pass
         try: cursor.execute("ALTER TABLE complaints ADD COLUMN updated_by TEXT DEFAULT ''")
         except: pass
+        try: cursor.execute("ALTER TABLE complaints ADD COLUMN sentiment INTEGER DEFAULT 3")
+        except: pass
+        
         cursor.execute("""CREATE TABLE IF NOT EXISTS users (
-            id INTEGER PRIMARY KEY AUTOINCREMENT, username TEXT UNIQUE NOT NULL, password_hash TEXT NOT NULL, role TEXT DEFAULT 'admin')""")
+            id INTEGER PRIMARY KEY AUTOINCREMENT, username TEXT UNIQUE NOT NULL, password_hash TEXT NOT NULL, 
+            role TEXT DEFAULT 'admin', assigned_area TEXT DEFAULT '', assigned_category TEXT DEFAULT '')""")
+            
+        # Backward compat for role columns
+        try: cursor.execute("ALTER TABLE users ADD COLUMN assigned_area TEXT DEFAULT ''")
+        except: pass
+        try: cursor.execute("ALTER TABLE users ADD COLUMN assigned_category TEXT DEFAULT ''")
+        except: pass
+        
         cursor.execute("""CREATE TABLE IF NOT EXISTS vendors (
             id INTEGER PRIMARY KEY AUTOINCREMENT, vendor_name TEXT NOT NULL, work_type TEXT,
             contract_value REAL, projects_completed INTEGER DEFAULT 0, performance_rating REAL DEFAULT 0.0,
@@ -412,8 +664,20 @@ def setup_database():
             notes TEXT, created_at TEXT,
             FOREIGN KEY (complaint_id) REFERENCES complaints(id),
             FOREIGN KEY (vendor_id) REFERENCES vendors(id))""")
+            
+        cursor.execute("""CREATE TABLE IF NOT EXISTS audit_logs (
+            id INTEGER PRIMARY KEY AUTOINCREMENT, username TEXT NOT NULL, action TEXT NOT NULL, 
+            details TEXT, timestamp TEXT)""")
         cursor.execute("""CREATE TABLE IF NOT EXISTS budget_config (
             id INTEGER PRIMARY KEY AUTOINCREMENT, total_budget REAL, fiscal_year TEXT, updated_at TEXT)""")
+        cursor.execute("""CREATE TABLE IF NOT EXISTS complaint_history (
+            id INTEGER PRIMARY KEY AUTOINCREMENT, complaint_id INTEGER NOT NULL,
+            old_status TEXT, new_status TEXT, changed_by TEXT, changed_at TEXT,
+            FOREIGN KEY (complaint_id) REFERENCES complaints(id))""")
+        cursor.execute("""CREATE TABLE IF NOT EXISTS complaint_ratings (
+            id INTEGER PRIMARY KEY AUTOINCREMENT, complaint_id INTEGER UNIQUE NOT NULL,
+            rating INTEGER NOT NULL, feedback_text TEXT, created_at TEXT,
+            FOREIGN KEY (complaint_id) REFERENCES complaints(id))""")
         
         cursor.execute("SELECT COUNT(*) FROM users")
         if cursor.fetchone()[0] == 0:

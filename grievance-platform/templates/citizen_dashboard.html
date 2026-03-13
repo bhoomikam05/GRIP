@@ -5,7 +5,6 @@
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>GRIP — Complaints Dashboard</title>
 <link href="https://fonts.googleapis.com/css2?family=Syne:wght@400;500;600;700;800&family=DM+Sans:ital,wght@0,300;0,400;0,500;1,300&display=swap" rel="stylesheet">
-<script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
 <style>
 *,*::before,*::after{box-sizing:border-box;margin:0;padding:0}
 :root{
@@ -79,6 +78,32 @@ nav{position:fixed;top:0;left:0;right:0;z-index:100;background:var(--ink);paddin
 .page-info{font-size:0.82rem;color:var(--muted);margin-left:auto}
 
 @media(max-width:768px){.kpi-row{grid-template-columns:1fr 1fr}.charts-grid{grid-template-columns:1fr}.main-wrap{padding:1.5rem}nav{padding:0 1.5rem}}
+
+/* MODALS */
+.modal-overlay{position:fixed;inset:0;background:rgba(0,0,0,0.6);z-index:200;display:none;align-items:center;justify-content:center;backdrop-filter:blur(4px)}
+.modal-overlay.active{display:flex}
+.modal-box{background:var(--card);border-radius:16px;max-width:560px;width:90%;max-height:85vh;overflow-y:auto;padding:2rem;position:relative;box-shadow:0 20px 60px #00000040}
+.modal-close{position:absolute;top:1rem;right:1rem;background:none;border:none;font-size:1.5rem;cursor:pointer;color:var(--muted);transition:color 0.2s}
+.modal-close:hover{color:var(--accent)}
+.modal-title{font-family:'Syne',sans-serif;font-size:1.2rem;font-weight:700;margin-bottom:1.5rem}
+.timeline{position:relative;padding-left:2rem}
+.timeline::before{content:'';position:absolute;left:0.5rem;top:0;bottom:0;width:2px;background:var(--border)}
+.tl-item{position:relative;margin-bottom:1.5rem;padding-left:1rem}
+.tl-item::before{content:'';position:absolute;left:-1.55rem;top:0.35rem;width:10px;height:10px;border-radius:50%;background:var(--accent);border:2px solid var(--card)}
+.tl-item.first::before{background:var(--teal)}
+.tl-status{font-weight:600;font-size:0.9rem}
+.tl-meta{font-size:0.78rem;color:var(--muted);margin-top:0.2rem}
+.lightbox-overlay{position:fixed;inset:0;background:rgba(0,0,0,0.85);z-index:250;display:none;align-items:center;justify-content:center;cursor:zoom-out}
+.lightbox-overlay.active{display:flex}
+.lightbox-overlay img{max-width:90%;max-height:90%;border-radius:12px;box-shadow:0 10px 40px #00000060}
+.photo-thumb{width:28px;height:28px;border-radius:6px;object-fit:cover;cursor:pointer;border:1px solid var(--border);transition:transform 0.2s}
+.photo-thumb:hover{transform:scale(1.3)}
+.stars{color:#F4A261;font-size:0.9rem;letter-spacing:1px}
+.star-input{display:inline-flex;gap:2px;cursor:pointer;font-size:1.5rem}
+.star-input span{color:var(--border);transition:color 0.15s}
+.star-input span.active,.star-input span:hover,.star-input span:hover~span{color:#F4A261}
+.rate-btn{padding:0.3rem 0.7rem;border:1.5px solid var(--gold);background:transparent;color:var(--gold);border-radius:6px;font-size:0.75rem;font-weight:600;cursor:pointer;transition:all 0.2s}
+.rate-btn:hover{background:var(--gold);color:#fff}
 </style>
 </head>
 <body>
@@ -98,39 +123,12 @@ nav{position:fixed;top:0;left:0;right:0;z-index:100;background:var(--ink);paddin
 
 <div class="page-header">
   <div style="max-width:1400px;margin:0 auto">
-    <h1>📊 Complaints Intelligence Dashboard</h1>
-    <p>Real-time monitoring of civic complaints — category breakdown, area heatmap, and resolution trends</p>
+    <h1>📋 My Complaints</h1>
+    <p>Track the status of all grievances you have submitted</p>
   </div>
 </div>
 
 <div class="main-wrap">
-  <!-- KPIs -->
-  <div class="kpi-row">
-    <div class="kpi total"><div class="kpi-icon">📋</div><div class="kpi-val" id="kTotal">—</div><div class="kpi-label">Total Complaints</div></div>
-    <div class="kpi pending"><div class="kpi-icon">⏳</div><div class="kpi-val" id="kPending" style="color:var(--gold)">—</div><div class="kpi-label">Pending</div><div class="kpi-pct" id="kPendingPct"></div></div>
-    <div class="kpi resolved"><div class="kpi-icon">✅</div><div class="kpi-val" id="kResolved" style="color:var(--teal)">—</div><div class="kpi-label">Resolved</div><div class="kpi-pct" id="kResolvedPct"></div></div>
-    <div class="kpi progress"><div class="kpi-icon">🔧</div><div class="kpi-val" id="kProgress" style="color:#4361EE">—</div><div class="kpi-label">In Progress</div></div>
-  </div>
-
-  <!-- CHARTS -->
-  <div class="charts-grid">
-    <div class="chart-card">
-      <div class="chart-title"><span class="dot"></span>Complaints by Category</div>
-      <div class="chart-wrap"><canvas id="categoryChart"></canvas></div>
-    </div>
-    <div class="chart-card">
-      <div class="chart-title"><span class="dot" style="background:var(--teal)"></span>Resolution Status</div>
-      <div class="chart-wrap"><canvas id="statusChart"></canvas></div>
-    </div>
-    <div class="chart-card">
-      <div class="chart-title"><span class="dot" style="background:var(--gold)"></span>Complaints by Area (Top 8)</div>
-      <div class="chart-wrap"><canvas id="areaChart"></canvas></div>
-    </div>
-    <div class="chart-card">
-      <div class="chart-title"><span class="dot" style="background:#4361EE"></span>Monthly Complaint Trend</div>
-      <div class="chart-wrap"><canvas id="trendChart"></canvas></div>
-    </div>
-  </div>
 
   <!-- TABLE -->
   <!-- ACTIVE CASES TABLE -->
@@ -146,9 +144,9 @@ nav{position:fixed;top:0;left:0;right:0;z-index:100;background:var(--ink);paddin
     <div style="overflow-x:auto">
       <table class="tbl">
         <thead><tr>
-          <th>#ID</th><th>Title</th><th>Category</th><th>Priority</th><th>Area</th><th>Status</th><th>Submitted</th>
+          <th>#ID</th><th>Title</th><th>Category</th><th>Priority</th><th>Area</th><th>Status</th><th>Submitted</th><th>Open For</th>
         </tr></thead>
-        <tbody id="activeBody"><tr><td colspan="7" style="text-align:center;padding:2rem;color:var(--muted)">Loading…</td></tr></tbody>
+        <tbody id="activeBody"><tr><td colspan="8" style="text-align:center;padding:2rem;color:var(--muted)">Loading…</td></tr></tbody>
       </table>
     </div>
     <div class="pagination" id="activePagination"></div>
@@ -162,18 +160,44 @@ nav{position:fixed;top:0;left:0;right:0;z-index:100;background:var(--ink);paddin
     <div style="overflow-x:auto">
       <table class="tbl">
         <thead><tr>
-          <th>#ID</th><th>Title</th><th>Category</th><th>Priority</th><th>Area</th><th>Status</th><th>Submitted</th><th>Resolved On</th>
+          <th>#ID</th><th>Title</th><th>Category</th><th>Priority</th><th>Area</th><th>Status</th><th>Submitted</th><th>Resolved On</th><th>Your Rating</th>
         </tr></thead>
-        <tbody id="resolvedBody"><tr><td colspan="8" style="text-align:center;padding:2rem;color:var(--muted)">Loading…</td></tr></tbody>
+        <tbody id="resolvedBody"><tr><td colspan="9" style="text-align:center;padding:2rem;color:var(--muted)">Loading…</td></tr></tbody>
       </table>
     </div>
     <div class="pagination" id="resolvedPagination"></div>
   </div>
 </div>
 
+<!-- TIMELINE MODAL -->
+<div class="modal-overlay" id="timelineModal" onclick="if(event.target===this)closeTimeline()">
+  <div class="modal-box">
+    <button class="modal-close" onclick="closeTimeline()">&times;</button>
+    <div class="modal-title" id="timelineTitle">Complaint Timeline</div>
+    <div id="timelineContent"><p style="color:var(--muted)">Loading…</p></div>
+  </div>
+</div>
+
+<!-- LIGHTBOX -->
+<div class="lightbox-overlay" id="lightbox" onclick="closeLightbox()">
+  <img id="lightboxImg" src="" alt="Evidence Photo">
+</div>
+
+<!-- RATING MODAL -->
+<div class="modal-overlay" id="ratingModal" onclick="if(event.target===this)closeRating()">
+  <div class="modal-box" style="max-width:400px;text-align:center">
+    <button class="modal-close" onclick="closeRating()">&times;</button>
+    <div class="modal-title">Rate This Resolution</div>
+    <p style="color:var(--muted);margin-bottom:1rem;font-size:0.9rem">How satisfied are you with how this complaint was handled?</p>
+    <div class="star-input" id="starInput"></div>
+    <input type="hidden" id="ratingComplaintId">
+    <input type="hidden" id="ratingValue">
+    <textarea id="ratingFeedback" placeholder="Optional: tell us more…" style="width:100%;margin-top:1rem;padding:0.75rem;border:1.5px solid var(--border);border-radius:8px;font-family:inherit;font-size:0.85rem;resize:vertical;min-height:60px"></textarea>
+    <button id="submitRatingBtn" onclick="submitRating()" style="margin-top:1rem;padding:0.6rem 2rem;background:var(--teal);color:#fff;border:none;border-radius:8px;font-weight:600;font-size:0.9rem;cursor:pointer;transition:opacity 0.2s">Submit Rating</button>
+  </div>
+</div>
+
 <script>
-const COLORS = ['#E63946','#F4A261','#2A9D8F','#264653','#4361EE','#7B2D8B','#F72585'];
-const CHART_OPTS = { responsive:true, maintainAspectRatio:false, plugins:{legend:{display:false}} };
 
 let allComplaints = [];
 let activeComplaints = [];
@@ -181,113 +205,32 @@ let resolvedComplaints = [];
 let activePage = 1;
 let resolvedPage = 1;
 const PER_PAGE = 10;
-let charts = {};
+let currentUser = null;
 
-function destroyChart(id){ if(charts[id]){ charts[id].destroy(); delete charts[id]; } }
-
-async function loadStats(){
-  try{
-    const r = await fetch('/api/complaints/stats');
-    const d = await r.json();
-    const total = d.total || 0;
-    document.getElementById('kTotal').textContent = total;
-    document.getElementById('kPending').textContent = d.pending || 0;
-    document.getElementById('kResolved').textContent = d.resolved || 0;
-    document.getElementById('kProgress').textContent = d.in_progress || 0;
-    if(total){
-      document.getElementById('kPendingPct').textContent = Math.round((d.pending/total)*100)+'% of total';
-      document.getElementById('kResolvedPct').textContent = Math.round((d.resolved/total)*100)+'% resolved';
-    }
-
-    // Category Chart
-    destroyChart('cat');
-    const catCtx = document.getElementById('categoryChart').getContext('2d');
-    charts['cat'] = new Chart(catCtx, {
-      type:'bar',
-      data:{
-        labels: d.by_category.map(c=>c.category),
-        datasets:[{data: d.by_category.map(c=>c.count), backgroundColor: COLORS, borderRadius:6, borderSkipped:false}]
-      },
-      options:{...CHART_OPTS, plugins:{...CHART_OPTS.plugins, tooltip:{callbacks:{label:c=>`${c.raw} complaints`}}},
-        scales:{y:{beginAtZero:true,grid:{color:'#00000008'},ticks:{font:{size:11}}},x:{grid:{display:false},ticks:{font:{size:11}}}}}
-    });
-
-    // Status Doughnut
-    destroyChart('status');
-    const stCtx = document.getElementById('statusChart').getContext('2d');
-    const statusData = [d.pending||0, d.in_progress||0, d.resolved||0];
-    charts['status'] = new Chart(stCtx, {
-      type:'doughnut',
-      data:{
-        labels:['Pending','In Progress','Resolved'],
-        datasets:[{data:statusData, backgroundColor:['#F4A261','#4361EE','#2A9D8F'], borderWidth:0, hoverOffset:8}]
-      },
-      options:{responsive:true, maintainAspectRatio:false, cutout:'65%',
-        plugins:{legend:{display:true, position:'bottom', labels:{font:{size:12},padding:16}}}}
-    });
-
-    // Area Chart
-    destroyChart('area');
-    const arCtx = document.getElementById('areaChart').getContext('2d');
-    charts['area'] = new Chart(arCtx, {
-      type:'bar',
-      data:{
-        labels: d.by_area.map(a=>a.area),
-        datasets:[{data: d.by_area.map(a=>a.count), backgroundColor:'#F4A261', borderRadius:6, borderSkipped:false}]
-      },
-      options:{...CHART_OPTS, indexAxis:'y',
-        scales:{x:{beginAtZero:true,grid:{color:'#00000008'}},y:{grid:{display:false},ticks:{font:{size:11}}}}}
-    });
-
-    // Monthly Trend
-    destroyChart('trend');
-    const trCtx = document.getElementById('trendChart').getContext('2d');
-    const months = [...d.monthly].reverse();
-    charts['trend'] = new Chart(trCtx, {
-      type:'line',
-      data:{
-        labels: months.map(m=>m.month),
-        datasets:[{data: months.map(m=>m.count), borderColor:'#4361EE', backgroundColor:'#4361EE15',
-          tension:0.4, fill:true, pointBackgroundColor:'#4361EE', pointRadius:4, borderWidth:2.5}]
-      },
-      options:{...CHART_OPTS,
-        scales:{y:{beginAtZero:true,grid:{color:'#00000008'}},x:{grid:{display:false},ticks:{font:{size:11}}}}}
-    });
-
-  }catch(e){ console.error(e) }
-}
 // ── Auth Handling & Protection ─────────────────────────────────────────
-function checkAuth() {
-  const userJson = localStorage.getItem('grip_user');
-  if(!userJson) {
-      window.location.href = 'login.html';
+async function checkAuth() {
+  try {
+    const r = await fetch('/api/me');
+    const d = await r.json();
+    if(!d.user || d.user.role !== 'citizen') {
+      window.location.href = '/login.html';
       return;
-  }
-  const user = JSON.parse(userJson);
-  if(user.role !== 'citizen') {
-      window.location.href = 'index.html';
-      return;
-  }
-  
-  const authLinks = document.getElementById('authLinks');
-  const logoutBtn = document.getElementById('logoutBtn');
-  const loginBtn = document.getElementById('loginBtn');
-
-  if(loginBtn) loginBtn.style.display = 'none';
-  if(logoutBtn) {
-      logoutBtn.style.display = 'inline-block';
-      logoutBtn.textContent = 'Logout (' + user.username + ')';
-  }
-  if(authLinks) authLinks.style.display = 'inline-block';
+    }
+    currentUser = d.user;
+    
+    document.getElementById('authLinks').style.display = 'inline-block';
+    document.getElementById('loginBtn').style.display = 'none';
+    const lOut = document.getElementById('logoutBtn');
+    lOut.style.display = 'inline-block';
+    lOut.href = '/logout';
+    lOut.textContent = 'Logout (' + currentUser.username + ')';
+    
+    // Now load table
+    loadTable();
+  } catch(e) { window.location.href = '/login.html'; }
 }
 
-function logout(e) {
-  if(e) e.preventDefault();
-  localStorage.removeItem('grip_user');
-  window.location.href = 'index.html';
-}
-
-checkAuth();
+function logout(e) {} // Handled by standard a href now
 
 async function loadTable(){
   const category = document.getElementById('tCategory').value;
@@ -295,10 +238,8 @@ async function loadTable(){
   const priority = document.getElementById('tPriority').value;
   
   let url = '/api/complaints?';
-  const uJson = localStorage.getItem('grip_user');
-  if(uJson){
-    const user = JSON.parse(uJson);
-    url += `contact=${user.username}&`;
+  if(currentUser){
+    url += `contact=${currentUser.username}&`;
   }
   if(category) url += `category=${category}&`;
   if(priority) url += `priority=${priority}&`;
@@ -319,27 +260,32 @@ async function loadTable(){
 }
 
 function renderRow(c){
+  const photo = c.image_path ? `<img src="/uploads/${c.image_path}" class="photo-thumb" onclick="openLightbox('/uploads/${c.image_path}')" title="View photo">` : '';
+  const daysOpen = getDaysOpen(c.created_at);
   return `<tr>
-    <td><strong>#${c.id}</strong></td>
-    <td style="max-width:220px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis" title="${escHtml(c.title)}">${escHtml(c.title)}</td>
+    <td><a href="#" onclick="openTimeline(${c.id});return false" style="color:var(--accent);font-weight:700;text-decoration:none">#${c.id}</a></td>
+    <td style="max-width:200px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis" title="${escHtml(c.title)}">${escHtml(c.title)} ${photo}</td>
     <td><span class="tag tag-cat">${c.category}</span></td>
     <td><span class="tag tag-pri-${c.priority || 'Medium'}">${c.priority || 'Medium'}</span></td>
     <td><span class="tag tag-area">${c.area}</span></td>
     <td><span class="tag tag-${c.status.replace(' ','_')}">${c.status}</span></td>
     <td>${formatDate(c.created_at)}</td>
+    <td>${getSlaHtml(daysOpen)}</td>
   </tr>`;
 }
 
 function renderResolvedRow(c){
+  const photo = c.image_path ? `<img src="/uploads/${c.image_path}" class="photo-thumb" onclick="openLightbox('/uploads/${c.image_path}')" title="View photo">` : '';
   return `<tr>
-    <td><strong>#${c.id}</strong></td>
-    <td style="max-width:220px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis" title="${escHtml(c.title)}">${escHtml(c.title)}</td>
+    <td><a href="#" onclick="openTimeline(${c.id});return false" style="color:var(--accent);font-weight:700;text-decoration:none">#${c.id}</a></td>
+    <td style="max-width:200px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis" title="${escHtml(c.title)}">${escHtml(c.title)} ${photo}</td>
     <td><span class="tag tag-cat">${c.category}</span></td>
     <td><span class="tag tag-pri-${c.priority || 'Medium'}">${c.priority || 'Medium'}</span></td>
     <td><span class="tag tag-area">${c.area}</span></td>
     <td><span class="tag tag-Resolved">Resolved</span></td>
     <td>${formatDate(c.created_at)}</td>
     <td>${formatDate(c.resolved_at)}</td>
+    <td class="stars" id="rating-${c.id}">\u2014</td>
   </tr>`;
 }
 
@@ -348,7 +294,7 @@ function renderActiveTable(){
   const page = activeComplaints.slice(start, start+PER_PAGE);
   const tbody = document.getElementById('activeBody');
   if(!page.length){
-    tbody.innerHTML = '<tr><td colspan="7" style="text-align:center;padding:2rem;color:var(--muted)">No active complaints 🎉</td></tr>';
+    tbody.innerHTML = '<tr><td colspan="8" style="text-align:center;padding:2rem;color:var(--muted)">No active complaints 🎉</td></tr>';
     document.getElementById('activePagination').innerHTML = '';
     return;
   }
@@ -361,12 +307,14 @@ function renderResolvedTable(){
   const page = resolvedComplaints.slice(start, start+PER_PAGE);
   const tbody = document.getElementById('resolvedBody');
   if(!page.length){
-    tbody.innerHTML = '<tr><td colspan="8" style="text-align:center;padding:2rem;color:var(--muted)">No resolved complaints yet.</td></tr>';
+    tbody.innerHTML = '<tr><td colspan="9" style="text-align:center;padding:2rem;color:var(--muted)">No resolved complaints yet.</td></tr>';
     document.getElementById('resolvedPagination').innerHTML = '';
     return;
   }
   tbody.innerHTML = page.map(renderResolvedRow).join('');
   renderPaginationFor('resolvedPagination', resolvedComplaints.length, resolvedPage, p => { resolvedPage=p; renderResolvedTable(); });
+  // Load ratings for visible resolved complaints
+  page.forEach(c => loadRating(c.id));
 }
 
 function renderPaginationFor(elId, total, currentPg, goFn){
@@ -397,14 +345,97 @@ async function updateStatus(id, status){
   try{
     const r = await fetch(`/api/complaints/${id}/status`,{method:'PUT',headers:{'Content-Type':'application/json'},body:JSON.stringify({status})});
     const d = await r.json();
-    if(d.success){ loadStats(); }
+    if(d.success){ loadTable(); }
   }catch(e){}
 }
 
 function escHtml(s){ return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;') }
-function formatDate(d){ if(!d) return '—'; return new Date(d).toLocaleDateString('en-IN',{day:'2-digit',month:'short',year:'numeric'}) }
+function formatDate(d){ if(!d) return '\u2014'; return new Date(d).toLocaleDateString('en-IN',{day:'2-digit',month:'short',year:'numeric'}) }
+function formatDateTime(d){ if(!d) return '\u2014'; return new Date(d).toLocaleString('en-IN',{day:'2-digit',month:'short',year:'numeric',hour:'2-digit',minute:'2-digit'}) }
+function getDaysOpen(d){ if(!d) return 0; return Math.max(0, Math.ceil((new Date() - new Date(d))/(1000*60*60*24))); }
+function getSlaHtml(days){ let c='var(--teal)'; if(days>=4) c='var(--gold)'; if(days>7) c='var(--accent)'; return `<span style="color:${c};font-weight:700">${days} days</span>`; }
 
-loadStats(); loadTable();
+// Timeline Modal
+async function openTimeline(id){
+  document.getElementById('timelineModal').classList.add('active');
+  document.getElementById('timelineTitle').textContent = 'Timeline \u2014 Complaint #'+id;
+  const content = document.getElementById('timelineContent');
+  content.innerHTML = '<p style="color:var(--muted)">Loading\u2026</p>';
+  try{
+    const r = await fetch(`/api/complaints/${id}/history`);
+    const hist = await r.json();
+    if(!hist.length){
+      content.innerHTML = '<p style="color:var(--muted)">No status changes recorded yet.</p>';
+      return;
+    }
+    content.innerHTML = '<div class="timeline">' + hist.map((h,i) =>
+      `<div class="tl-item${i===0?' first':''}">
+        <div class="tl-status">${h.old_status} \u2192 ${h.new_status}</div>
+        <div class="tl-meta">by <strong>${h.changed_by||'System'}</strong> \u2022 ${formatDateTime(h.changed_at)}</div>
+      </div>`
+    ).join('') + '</div>';
+  }catch(e){ content.innerHTML = '<p style="color:var(--accent)">Failed to load timeline.</p>'; }
+}
+function closeTimeline(){ document.getElementById('timelineModal').classList.remove('active'); }
+
+// Lightbox
+function openLightbox(src){ document.getElementById('lightboxImg').src=src; document.getElementById('lightbox').classList.add('active'); }
+function closeLightbox(){ document.getElementById('lightbox').classList.remove('active'); }
+
+// Rating
+async function loadRating(id){
+  try{
+    const r = await fetch(`/api/complaints/${id}/rating`);
+    const d = await r.json();
+    const el = document.getElementById('rating-'+id);
+    if(el && d.rating){
+      el.innerHTML = '\u2605'.repeat(d.rating) + '\u2606'.repeat(5-d.rating);
+      if(d.feedback_text) el.title = d.feedback_text;
+    } else if(el){
+      el.innerHTML = `<button class="rate-btn" onclick="openRating(${id})">\u2b50 Rate</button>`;
+    }
+  }catch(e){}
+}
+
+function openRating(id){
+  document.getElementById('ratingComplaintId').value = id;
+  document.getElementById('ratingValue').value = '';
+  document.getElementById('ratingFeedback').value = '';
+  const starInput = document.getElementById('starInput');
+  starInput.innerHTML = Array.from({length:5},(_,i) =>
+    `<span onclick="selectStar(${i+1})" onmouseover="hoverStar(${i+1})" onmouseout="resetStars()">\u2606</span>`
+  ).join('');
+  document.getElementById('ratingModal').classList.add('active');
+}
+function closeRating(){ document.getElementById('ratingModal').classList.remove('active'); }
+function selectStar(n){
+  document.getElementById('ratingValue').value = n;
+  const spans = document.getElementById('starInput').querySelectorAll('span');
+  spans.forEach((s,i) => { s.textContent = i<n ? '\u2605' : '\u2606'; s.classList.toggle('active', i<n); });
+}
+function hoverStar(n){
+  document.getElementById('starInput').querySelectorAll('span').forEach((s,i) => { s.textContent = i<n ? '\u2605' : '\u2606'; });
+}
+function resetStars(){
+  const val = parseInt(document.getElementById('ratingValue').value) || 0;
+  document.getElementById('starInput').querySelectorAll('span').forEach((s,i) => { s.textContent = i<val ? '\u2605' : '\u2606'; });
+}
+async function submitRating(){
+  const id = document.getElementById('ratingComplaintId').value;
+  const rating = document.getElementById('ratingValue').value;
+  const feedback_text = document.getElementById('ratingFeedback').value;
+  if(!rating){ alert('Please select a star rating'); return; }
+  try{
+    const r = await fetch(`/api/complaints/${id}/rate`,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({rating:parseInt(rating), feedback_text})});
+    const d = await r.json();
+    if(d.success){
+      closeRating();
+      loadTable(); // reload to show updated rating
+    }
+  }catch(e){}
+}
+
+checkAuth();
 </script>
 </body>
 </html>
