@@ -1,0 +1,44 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Login — GRIP</title>
+<link href="https://fonts.googleapis.com/css2?family=Syne:wght@400;500;600;700;800&family=DM+Sans:ital,wght@0,300;0,400;0,500;1,300&display=swap" rel="stylesheet">
+<style>
+*,*::before,*::after{box-sizing:border-box;margin:0;padding:0}
+:root{--ink:#0A0A14;--paper:#F4F1EB;--accent:#E63946;--gold:#F4A261;--teal:#2A9D8F;--border:#DDD9D0;}
+body{font-family:'DM Sans',sans-serif;background:var(--paper);color:var(--ink);min-height:100vh;display:flex;align-items:center;justify-content:center;padding:2rem}
+.card{background:#fff;border:1px solid var(--border);border-radius:18px;max-width:380px;width:100%;padding:2.5rem;box-shadow:0 12px 24px rgba(0,0,0,0.08)}
+.logo{font-family:'Syne',sans-serif;font-weight:800;font-size:1.6rem;color:var(--ink);margin-bottom:1rem;text-align:center}
+.logo span{color:var(--accent)}
+.form-group{display:flex;flex-direction:column;gap:0.5rem;margin-bottom:1rem}
+label{font-size:0.8rem;font-weight:600;color:var(--muted)}
+input{padding:0.85rem 1rem;border:1.5px solid var(--border);border-radius:10px;font-size:0.95rem;outline:none;transition:border-color 0.2s}
+input:focus{border-color:var(--accent)}
+.btn{width:100%;padding:0.9rem 1rem;border:none;border-radius:10px;background:var(--accent);color:#fff;font-weight:700;font-size:1rem;cursor:pointer;transition:transform 0.2s}
+.btn:hover{transform:translateY(-1px)}
+.error{margin-bottom:1rem;color:#b00020;font-size:0.9rem;border-left:4px solid #b00020;padding-left:0.75rem}
+</style>
+</head>
+<body>
+  <div class="card">
+    <div class="logo">GR<span>IP</span> Login</div>
+    {% if error %}
+      <div class="error">{{ error }}</div>
+    {% endif %}
+    <form method="post" autocomplete="off">
+      <div class="form-group">
+        <label for="username">Username</label>
+        <input id="username" name="username" type="text" autocomplete="username" required>
+      </div>
+      <div class="form-group">
+        <label for="password">Password</label>
+        <input id="password" name="password" type="password" autocomplete="current-password" required>
+      </div>
+      <button class="btn" type="submit">Login</button>
+    </form>
+    <p style="margin-top:1rem;font-size:0.85rem;color:var(--muted);text-align:center;">Default admin: <strong>admin</strong> / <strong>admin123</strong></p>
+  </div>
+</body>
+</html>
