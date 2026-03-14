@@ -10,6 +10,15 @@ from werkzeug.utils import secure_filename
 import jwt
 from functools import wraps
 from flask_socketio import SocketIO, emit
+from twilio.rest import Client
+
+# --- Twilio Configuration (Replace with your credentials) ------------------
+TWILIO_ACCOUNT_SID = os.environ.get('TWILIO_ACCOUNT_SID', '')
+TWILIO_AUTH_TOKEN = os.environ.get('TWILIO_AUTH_TOKEN', '')
+TWILIO_PHONE_NUMBER = os.environ.get('TWILIO_PHONE_NUMBER', '')
+
+import logging
+logging.basicConfig(filename='/tmp/app.log', level=logging.INFO, format='%(asctime)s %(levelname)s: %(message)s')
 
 app = Flask(__name__)
 app.secret_key = os.environ.get('SECRET_KEY', 'change-me')
@@ -152,6 +161,53 @@ def nlp_categorize_and_prioritize(title, description):
     
     return category, priority, sentiment_score
 
+# --- OTP Storage (Simulated for Dev) ---------------------------------------
+pending_otps = {} # { phone_number: { otp: "123456", expires: timestamp } }
+
+@app.route('/api/send-otp', methods=['POST'])
+def send_otp():
+    try:
+        data = request.json
+        phone = data.get('username', '').strip()
+        app.logger.info(f"📩 OTP Requested for: {phone}")
+        
+        if not phone or len(phone) < 10:
+            return jsonify({'error': 'Valid phone number required'}), 400
+        
+        # Generate 6-digit OTP
+        otp = str(random.randint(100000, 999999))
+        expiry = datetime.now() + timedelta(minutes=5)
+        pending_otps[phone] = {'otp': otp, 'expires': expiry}
+        
+        # Send Real SMS via Twilio
+        try:
+            client = Client(TWILIO_ACCOUNT_SID, TWILIO_AUTH_TOKEN)
+            message = client.messages.create(
+                body=f"Your GRIP verification code is: {otp}. Valid for 5 minutes.",
+                from_=TWILIO_PHONE_NUMBER,
+                to=f"+91{phone}" if not phone.startswith('+') else phone
+            )
+            app.logger.info(f"✅ SMS Sent to {phone}: {message.sid}")
+        except Exception as sms_err:
+            err_msg = str(sms_err)
+            app.logger.error(f"❌ Twilio Error: {err_msg}")
+            
+            # Diagnostic tips
+            if "authenticate" in err_msg.lower():
+                app.logger.error("💡 TIP: Your Account SID or Auth Token is incorrect. Check your Twilio Console.")
+            elif "is not a mobile number" in err_msg.lower() or "not a valid" in err_msg.lower():
+                app.logger.error("💡 TIP: The sender ('from_') number must be a number purchased from Twilio.")
+            elif "Permission to send" in err_msg.lower():
+                app.logger.error("💡 TIP: Enable 'Geo-Permissions' for India in Twilio Settings -> Messaging -> Settings -> Geo-Permissions.")
+            
+            # Fallback for dev visibility 
+            app.logger.info(f"⚠️ FALLBACK: OTP for {phone}: {otp}")
+        
+        log_audit(phone, 'OTP_SENT', "Signup OTP generated and sent to physical phone")
+        
+        return jsonify({'success': True, 'message': 'OTP sent to your phone!'})
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
 @app.route('/api/login', methods=['POST'])
 def api_login():
     try:
@@ -161,7 +217,7 @@ def api_login():
         
         conn = get_db()
         cursor = conn.cursor()
-        cursor.execute('SELECT id, username, password_hash, role, assigned_area, assigned_category FROM users WHERE username=?', (username,))
+        cursor.execute('SELECT id, username, password_hash, role, assigned_area, assigned_category, fullname FROM users WHERE username=?', (username,))
         user = cursor.fetchone()
         conn.close()
         
@@ -171,6 +227,7 @@ def api_login():
                 'id': user['id'],
                 'username': user['username'],
                 'role': user['role'],
+                'fullname': user['fullname'],
                 'assigned_area': user['assigned_area'],
                 'assigned_category': user['assigned_category'],
                 'exp': datetime.utcnow() + timedelta(days=7)
@@ -179,7 +236,7 @@ def api_login():
             
             log_audit(user['username'], 'LOGIN', f"User logged in from {request.remote_addr}")
             
-            resp = jsonify({'success': True, 'user': {'username': user['username'], 'role': user['role']}})
+            resp = jsonify({'success': True, 'user': {'username': user['username'], 'role': user['role'], 'fullname': user['fullname']}})
             resp.set_cookie('token', token, httponly=True, secure=False, samesite='Lax', max_age=7*24*3600)
             return resp
         
@@ -193,10 +250,11 @@ def api_register():
         data = request.json
         username = data.get('username', '').strip()
         password = data.get('password', '')
+        fullname = data.get('fullname', '').strip()
         
         if not username or not password:
             return jsonify({'error': 'Missing fields'}), 400
-            
+
         conn = get_db()
         cursor = conn.cursor()
         
@@ -207,17 +265,17 @@ def api_register():
             return jsonify({'error': 'Phone number already registered'}), 409
             
         password_hash = generate_password_hash(password)
-        cursor.execute("INSERT INTO users (username, password_hash, role) VALUES (?,?,?)", (username, password_hash, 'citizen'))
+        cursor.execute("INSERT INTO users (username, password_hash, role, fullname) VALUES (?,?,?,?)", (username, password_hash, 'citizen', fullname))
         user_id = cursor.lastrowid
         conn.commit()
         conn.close()
         
-        token_data = {'id': user_id, 'username': username, 'role': 'citizen', 'exp': datetime.utcnow() + timedelta(days=7)}
+        token_data = {'id': user_id, 'username': username, 'role': 'citizen', 'fullname': fullname, 'exp': datetime.utcnow() + timedelta(days=7)}
         token = jwt.encode(token_data, app.config['SECRET_KEY'], algorithm='HS256')
         
-        log_audit(username, 'REGISTER', "New citizen account created")
+        log_audit(username, 'REGISTER', f"New citizen '{fullname}' registered")
         
-        resp = jsonify({'success': True, 'user': {'username': username, 'role': 'citizen'}})
+        resp = jsonify({'success': True, 'user': {'username': username, 'role': 'citizen', 'fullname': fullname}})
         resp.set_cookie('token', token, httponly=True, secure=False, samesite='Lax', max_age=7*24*3600)
         return resp
     except Exception as e:
@@ -251,6 +309,94 @@ def handle_live_categorize(data):
         'sentiment': sentiment
     })
 
+# --- Community Chat ---------------------------------------------------------
+
+@app.route('/community')
+@app.route('/community.html')
+def community_view():
+    return render_template('community.html')
+
+@app.route('/api/chat/history', methods=['GET'])
+def chat_history():
+    try:
+        conn = get_db()
+        cursor = conn.cursor()
+        cursor.execute("""
+            SELECT m.id, m.username, m.message, m.timestamp, u.fullname 
+            FROM chat_messages m
+            LEFT JOIN users u ON m.username = u.username 
+            ORDER BY m.id DESC LIMIT 100
+        """)
+        msgs = [dict(r) for r in cursor.fetchall()]
+        conn.close()
+        msgs.reverse()
+        return jsonify({'messages': msgs})
+    except Exception as e:
+        return jsonify({'messages': [], 'error': str(e)})
+
+@app.route('/api/chat/send', methods=['POST'])
+def chat_send():
+    token = request.cookies.get('token')
+    if not token:
+        return jsonify({'error': 'Not logged in'}), 401
+    try:
+        user_data = jwt.decode(token, app.config['SECRET_KEY'], algorithms=['HS256'])
+        username = user_data.get('username', 'Anonymous')
+    except:
+        return jsonify({'error': 'Invalid token'}), 401
+    
+    data = request.json
+    message = data.get('message', '').strip()
+    client_id = data.get('clientId') # Optional tracking ID from frontend
+    if not message:
+        return jsonify({'error': 'Empty message'}), 400
+    
+    timestamp = datetime.now().strftime('%Y-%m-%d %H:%M:%S')
+    try:
+        conn = get_db()
+        cursor = conn.cursor()
+        cursor.execute("INSERT INTO chat_messages (username, message, timestamp) VALUES (?,?,?)",
+                       (username, message, timestamp))
+        msg_id = cursor.lastrowid
+        conn.commit()
+        conn.close()
+        
+        # Also broadcast via WebSocket for real-time
+        socketio.emit('new_chat_message', {
+            'id': msg_id,
+            'clientId': client_id,
+            'username': username,
+            'fullname': fullname,
+            'message': message,
+            'timestamp': timestamp
+        })
+        
+        return jsonify({'success': True, 'id': msg_id, 'clientId': client_id})
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
+
+@socketio.on('chat_message')
+def handle_chat_message(data):
+    username = data.get('username', 'Anonymous')
+    message = data.get('message', '').strip()
+    if not message:
+        return
+    timestamp = datetime.now().strftime('%Y-%m-%d %H:%M:%S')
+    try:
+        conn = get_db()
+        cursor = conn.cursor()
+        cursor.execute("INSERT INTO chat_messages (username, message, timestamp) VALUES (?,?,?)",
+                       (username, message, timestamp))
+        conn.commit()
+        conn.close()
+    except Exception as e:
+        print(f"Chat DB Error: {e}")
+    emit('new_chat_message', {
+        'username': username,
+        'message': message,
+        'timestamp': timestamp
+    }, broadcast=True)
+
 @app.route('/api/me', methods=['GET'])
 def api_me():
     token = request.cookies.get('token')
@@ -258,7 +404,17 @@ def api_me():
         return jsonify({'user': None})
     try:
         data = jwt.decode(token, app.config['SECRET_KEY'], algorithms=['HS256'])
-        return jsonify({'user': data})
+        username = data.get('username')
+        
+        conn = get_db()
+        cursor = conn.cursor()
+        cursor.execute('SELECT username, role, fullname FROM users WHERE username=?', (username,))
+        user = cursor.fetchone()
+        conn.close()
+        
+        if user:
+            return jsonify({'user': dict(user)})
+        return jsonify({'user': data}) # Fallback to token if user not found in DB
     except:
         return jsonify({'user': None})
 
@@ -686,12 +842,14 @@ def setup_database():
         
         cursor.execute("""CREATE TABLE IF NOT EXISTS users (
             id INTEGER PRIMARY KEY AUTOINCREMENT, username TEXT UNIQUE NOT NULL, password_hash TEXT NOT NULL, 
-            role TEXT DEFAULT 'admin', assigned_area TEXT DEFAULT '', assigned_category TEXT DEFAULT '')""")
+            role TEXT DEFAULT 'admin', assigned_area TEXT DEFAULT '', assigned_category TEXT DEFAULT '', fullname TEXT DEFAULT '')""")
             
-        # Backward compat for role columns
+        # Backward compat for columns
         try: cursor.execute("ALTER TABLE users ADD COLUMN assigned_area TEXT DEFAULT ''")
         except: pass
         try: cursor.execute("ALTER TABLE users ADD COLUMN assigned_category TEXT DEFAULT ''")
+        except: pass
+        try: cursor.execute("ALTER TABLE users ADD COLUMN fullname TEXT DEFAULT ''")
         except: pass
         
         cursor.execute("""CREATE TABLE IF NOT EXISTS vendors (
@@ -718,6 +876,9 @@ def setup_database():
             id INTEGER PRIMARY KEY AUTOINCREMENT, complaint_id INTEGER UNIQUE NOT NULL,
             rating INTEGER NOT NULL, feedback_text TEXT, created_at TEXT,
             FOREIGN KEY (complaint_id) REFERENCES complaints(id))""")
+        cursor.execute("""CREATE TABLE IF NOT EXISTS chat_messages (
+            id INTEGER PRIMARY KEY AUTOINCREMENT, username TEXT NOT NULL,
+            message TEXT NOT NULL, timestamp TEXT)""")
         
         cursor.execute("SELECT COUNT(*) FROM users")
         if cursor.fetchone()[0] == 0:
