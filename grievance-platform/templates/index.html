@@ -6,6 +6,7 @@
 <title>GRIP — Public Grievance Intelligence & Resolution Platform</title>
 <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
 <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+<script src="https://cdn.socket.io/4.7.2/socket.io.min.js"></script>
 <style>
 *,*::before,*::after{box-sizing:border-box;margin:0;padding:0}
 :root{
@@ -376,6 +377,16 @@ async function checkAuth() {
       } else if(currentUser.role === 'citizen') {
         document.getElementById('navCitizen').style.display = 'inline-block';
         if(citQL) citQL.style.display = 'flex';
+        
+        // Auto-fill citizen info
+        const nameField = document.querySelector('input[name="citizen_name"]');
+        const contactField = document.querySelector('input[name="citizen_contact"]');
+        if(contactField) { 
+          contactField.value = currentUser.username; 
+          contactField.readOnly = true;
+          contactField.title = "Contact number is tied to your account";
+        }
+        if(nameField && currentUser.display_name) { nameField.value = currentUser.display_name; }
       }
     }
   } catch(e) {
@@ -385,23 +396,15 @@ async function checkAuth() {
 
 function logout(e) {
   if(e) e.preventDefault();
-  // Logout is now handled by the backend, redirecting to /logout will clear the session.
   window.location.href = '/logout';
 }
 
 checkAuth();
 
-// ── Auto-fill citizen info from login ───────────────────────────
-(function autoFillCitizen(){
-  if(currentUser && currentUser.role === 'citizen'){
-    const nameField = document.querySelector('input[name="citizen_name"]');
-    const contactField = document.querySelector('input[name="citizen_contact"]');
-    if(contactField) { contactField.value = currentUser.username; contactField.readOnly = true; }
-    if(nameField && currentUser.display_name) { nameField.value = currentUser.display_name; }
-  }
-})();
+// ── Real-Time Socket Connection ─────────────────────────────────
+const socket = io();
 
-// ── AI Auto-categorize ──────────────────────────────────────────
+// ── AI Auto-categorize (WebSocket) ─────────────────────────────
 let aiTimer;
 const titleInput = document.getElementById('titleInput');
 const descInput = document.getElementById('descInput');
@@ -409,24 +412,35 @@ const aiHint = document.getElementById('aiHint');
 const aiCategory = document.getElementById('aiCategory');
 const catSelect = document.getElementById('categorySelect');
 
-function triggerAI(){
+function emitLiveCategorize(){
   clearTimeout(aiTimer);
   const title = titleInput.value.trim();
   const desc = descInput.value.trim();
-  if(title.length < 5) return;
-  aiTimer = setTimeout(async()=>{
-    try{
-      const r = await fetch('/api/categorize',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({title,description:desc})});
-      const d = await r.json();
-      aiCategory.textContent = d.category;
-      document.getElementById('aiPriority').textContent = d.priority || 'Medium';
-      aiHint.classList.add('show');
-      if(!catSelect.value) catSelect.value = d.category;
-    }catch(e){}
-  }, 700);
+  if(title.length < 3) {
+    aiHint.classList.remove('show');
+    return;
+  }
+  
+  aiTimer = setTimeout(() => {
+    socket.emit('live_categorize', { title, description: desc });
+  }, 400);
 }
-titleInput.addEventListener('input', triggerAI);
-descInput.addEventListener('input', triggerAI);
+
+titleInput.addEventListener('input', emitLiveCategorize);
+descInput.addEventListener('input', emitLiveCategorize);
+
+socket.on('categorization_update', (data) => {
+    if (data.category) {
+        aiCategory.textContent = data.category;
+        document.getElementById('aiPriority').textContent = data.priority || 'Medium';
+        aiHint.classList.add('show');
+        
+        // Auto-select category if not manually picked
+        if(!catSelect.value || catSelect.value === "") {
+            catSelect.value = data.category === 'Other' ? "" : data.category;
+        }
+    }
+});
 
 // ── Upload Zone ─────────────────────────────────────────────────
 const uploadZone = document.getElementById('uploadZone');

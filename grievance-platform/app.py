@@ -9,11 +9,14 @@ from werkzeug.security import generate_password_hash, check_password_hash
 from werkzeug.utils import secure_filename
 import jwt
 from functools import wraps
+from flask_socketio import SocketIO, emit
 
 app = Flask(__name__)
 app.secret_key = os.environ.get('SECRET_KEY', 'change-me')
 app.config['UPLOAD_FOLDER'] = 'static/uploads'
 app.config['MAX_CONTENT_LENGTH'] = 16 * 1024 * 1024
+
+socketio = SocketIO(app, cors_allowed_origins="*", async_mode='eventlet')
 
 @app.after_request
 def add_cors_headers(response):
@@ -228,9 +231,25 @@ def login_view():
 @app.route('/logout')
 @app.route('/logout.html')
 def logout():
+    session.clear()
     resp = redirect(url_for('login_view'))
-    resp.delete_cookie('token')
+    resp.set_cookie('token', '', expires=0)
     return resp
+
+# --- SocketIO Events --------------------------------------------------------
+
+@socketio.on('live_categorize')
+def handle_live_categorize(data):
+    title = data.get('title', '')
+    description = data.get('description', '')
+    print(f"🤖 Live Categorizing: {title[:30]}...")
+    category, priority, sentiment = nlp_categorize_and_prioritize(title, description)
+    print(f"   => Result: {category} ({priority})")
+    emit('categorization_update', {
+        'category': category,
+        'priority': priority,
+        'sentiment': sentiment
+    })
 
 @app.route('/api/me', methods=['GET'])
 def api_me():
@@ -311,6 +330,20 @@ def submit_complaint():
         conn.commit()
         conn.close()
         print(f"Complaint submitted with ID: {complaint_id}")
+        
+        # Log to audit table
+        log_audit(citizen_name, 'SUBMIT_COMPLAINT', f"Complaint #{complaint_id} submitted")
+        
+        # Emit real-time event
+        socketio.emit('new_complaint', {
+            'id': complaint_id,
+            'title': title,
+            'category': category,
+            'area': area,
+            'priority': priority,
+            'sentiment': sentiment
+        })
+
         return jsonify({'success': True, 'complaint_id': complaint_id, 'category': category, 'priority': priority, 'message': f'Complaint #{complaint_id} submitted successfully!'})
     except Exception as e:
         print(f"Error submitting complaint: {e}")
@@ -756,10 +789,14 @@ def setup_database():
         return False
 
 if __name__ == '__main__':
-    # Ensure DB tables exist (complaints + users + others)
+    # Ensure DB tables exist
     try:
-        print("Ensuring database tables exist...")
+        print("🚀 Ensuring database tables exist...")
         setup_database()
+        if not os.path.exists(app.config['UPLOAD_FOLDER']):
+            os.makedirs(app.config['UPLOAD_FOLDER'])
     except Exception as e:
         print(f"Auto-setup failed: {e}")
-    app.run(debug=True, port=5000)
+    
+    print("✨ GRIP Backend Running in Real-Time Mode (Port 5000)...")
+    socketio.run(app, debug=True, host='0.0.0.0', port=5000)

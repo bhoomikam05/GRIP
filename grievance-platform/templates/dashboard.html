@@ -7,6 +7,7 @@
 <link href="https://fonts.googleapis.com/css2?family=Syne:wght@400;500;600;700;800&family=DM+Sans:ital,wght@0,300;0,400;0,500;1,300&display=swap" rel="stylesheet">
 <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
 <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+<script src="https://cdn.socket.io/4.7.2/socket.io.min.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
 <style>
 *,*::before,*::after{box-sizing:border-box;margin:0;padding:0}
@@ -111,6 +112,8 @@ nav{position:fixed;top:0;left:0;right:0;z-index:100;background:var(--ink);paddin
 .btn:hover{background:var(--accent)}
 .btn-outline{background:transparent;color:var(--ink);border:1.5px solid var(--border)}
 .btn-outline:hover{background:var(--ink);color:#fff;border-color:var(--ink)}
+.page-header .btn-outline{color:#fff;border-color:#ffffff40}
+.page-header .btn-outline:hover{background:#fff;color:var(--ink);border-color:#fff}
 
 .admin-panel{background:var(--card);border:1px solid var(--border);border-radius:16px;padding:2rem;margin-bottom:2.5rem;display:none}
 .admin-panel h2{font-family:'Syne',sans-serif;font-size:1.3rem;font-weight:700;margin-bottom:1.5rem}
@@ -442,6 +445,49 @@ async function delOfficial(id){
   await fetch('/api/officials/'+id, {method:'DELETE'});
   loadOfficials();
 }
+
+// ── Real-Time Socket Connection ─────────────────────────────────
+const socket = io();
+
+socket.on('connect', () => {
+    console.log('📡 Dashboard connected to Real-Time stream');
+});
+
+socket.on('new_complaint', (data) => {
+    console.log('🆕 New complaint received:', data);
+    showToast('🚨 New Complaint', `New ${data.category} issue logged in ${data.area}`);
+    
+    // Refresh dashboard data dynamically
+    loadStats();
+    loadTable();
+    
+    // Update map if it exists
+    if (map) {
+        // Option to add marker or refresh heatmap
+        loadMapData(); // Assuming loadMapData() exists or updateHeatmap is called with new data
+    }
+});
+
+function showToast(title, message) {
+    // Reusing logic if toast exists, otherwise simple console log for now
+    // or we can add a simple toast div to the body
+    const toast = document.createElement('div');
+    toast.style = "position:fixed;bottom:20px;right:20px;background:var(--accent);color:#fff;padding:1rem 1.5rem;border-radius:12px;box-shadow:0 10px 30px rgba(0,0,0,0.2);z-index:9999;font-weight:600;animation:slideIn 0.3s ease-out";
+    toast.innerHTML = `<strong>${title}</strong><br>${message}`;
+    document.body.appendChild(toast);
+    setTimeout(() => {
+        toast.style.animation = "slideOut 0.3s ease-in";
+        setTimeout(() => toast.remove(), 300);
+    }, 5000);
+}
+
+// Add CSS for toast animations if not present
+const style = document.createElement('style');
+style.innerHTML = `
+@keyframes slideIn { from { transform: translateX(100%); opacity: 0; } to { transform: translateX(0); opacity: 1; } }
+@keyframes slideOut { from { transform: translateX(0); opacity: 1; } to { transform: translateX(100%); opacity: 0; } }
+`;
+document.head.appendChild(style);
 
 async function openAudit(){
   document.getElementById('auditModal').classList.add('active');
