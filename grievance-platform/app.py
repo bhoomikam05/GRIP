@@ -949,15 +949,20 @@ def setup_database():
         print(f"Setup error: {e}")
         return False
 
-if __name__ == '__main__':
-    # Ensure DB tables exist
-    try:
-        print("🚀 Ensuring database tables exist...")
+# Handle DB initialization for regular and serverless environments
+try:
+    if not os.path.exists(DB_FILE):
         setup_database()
-        if not os.path.exists(app.config['UPLOAD_FOLDER']):
-            os.makedirs(app.config['UPLOAD_FOLDER'])
-    except Exception as e:
-        print(f"Auto-setup failed: {e}")
-    
-    print("✨ GRIP Backend Running in Real-Time Mode (Port 5000)...")
+except Exception as e:
+    print(f"Serverless DB setup check skipped or failed: {e}")
+
+if __name__ == '__main__':
+    # Ensure local upload folders exist
+    if not os.path.exists(app.config['UPLOAD_FOLDER']):
+        os.makedirs(app.config['UPLOAD_FOLDER'])
+        
+    print("✨ GRIP Backend Running in Local Mode (Port 5000)...")
     socketio.run(app, debug=True, host='0.0.0.0', port=5000)
+else:
+    # Vercel / WSGI entry point
+    app.logger.info("🚀 GRIP Backend initialized for Serverless/WSGI mode")
