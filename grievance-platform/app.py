@@ -39,15 +39,28 @@ ALLOWED_EXTENSIONS = {'png', 'jpg', 'jpeg', 'gif', 'webp'}
 def allowed_file(filename):
     return '.' in filename and filename.rsplit('.', 1)[1].lower() in ALLOWED_EXTENSIONS
 
-DB_FILE = 'grievance.db'
+DB_FILE_NAME = 'grievance.db'
+if os.environ.get('VERCEL'):
+    DB_FILE = os.path.join('/tmp', DB_FILE_NAME)
+    # Copy from local dir to /tmp if not there
+    if not os.path.exists(DB_FILE) and os.path.exists(DB_FILE_NAME):
+        import shutil
+        try:
+            shutil.copy2(DB_FILE_NAME, DB_FILE)
+            logging.info(f"✅ Copied {DB_FILE_NAME} to {DB_FILE}")
+        except Exception as e:
+            logging.error(f"❌ Failed to copy DB: {e}")
+else:
+    DB_FILE = DB_FILE_NAME
 
 def get_db():
     try:
+        # On Vercel, if DB still missing, we might need to create it in /tmp
         conn = sqlite3.connect(DB_FILE)
         conn.row_factory = sqlite3.Row
         return conn
     except Error as e:
-        print(f"DB Error: {e}")
+        logging.error(f"DB Error: {e}")
         return None
 
 # --- Auth helpers & Audit ---------------------------------------------------
@@ -417,6 +430,15 @@ def api_me():
         return jsonify({'user': data}) # Fallback to token if user not found in DB
     except:
         return jsonify({'user': None})
+
+@app.route('/api/ping')
+def api_ping():
+    return jsonify({
+        'status': 'ok',
+        'db_path': DB_FILE,
+        'db_exists': os.path.exists(DB_FILE),
+        'is_vercel': os.environ.get('VERCEL') is not None
+    })
 
 @app.route('/')
 @app.route('/index.html')
